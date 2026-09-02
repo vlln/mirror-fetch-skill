@@ -37,6 +37,7 @@ curl fetch → verify。**下载唯一入口是系统 `curl -C -`**（BL-024 续
 | 下载委托 curl 而非 urllib | 复用已验证的 `-C -`/Range/`--retry`/代理语义（BL-024 实测），urllib 续传要重造 |
 | cause 分类 ok/blocked/auth/gone/timeout/conn/http | 直接映射失败分类学与 ADR-0011 终态：auth→凭据、blocked/gone→unavailable 候选、timeout/conn→not_attempted；防"未获取冒充不可获取" |
 | probe 用 GET Range bytes=0-255（非 HEAD） | 部分服务器不支持 HEAD（405）；Range GET 同时验证"可下载"本身 |
+| fetch 按序逐个尝试候选（probe ok 也可能真实 GET 401/403） | 2026-09-02 实网暴露：probe(Range) 200 ≠ curl GET 成功（反爬/凭据差异）；失败聚合 `attempts[].cause`，终态判定用 fetch 结果而非 probe。已知局限：probe 仍用 urllib（UA/栈与 curl 不同），未来候选 = probe 改走 `curl -r 0-255` 与下载同栈 |
 | 每次 fetch 前 probe + 输出实际 endpoint | 镜像可用性漂移（防硬编码）；endpoint 落日志供跨批次可比性 |
 | 空镜像表 = 仅直连 | 表外上游不报错，正常直连下载（fallback 语义明确） |
 

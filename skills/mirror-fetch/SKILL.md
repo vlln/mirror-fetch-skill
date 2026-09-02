@@ -80,6 +80,9 @@ Script: `$_S/scripts/mirror-fetch`（python3 stdlib，无第三方依赖；下�
   wget/aria2c（BL-024）。引擎已内置 `-C -`，除非 `--no-resume`。
 - **不要发明镜像**：只使用 `configs/mirrors.json` 表内候选；新镜像需实测后由维护者
   加表（见 `references/mirror-fetch-cli.md` 的新增上游一节）。
+- **probe 通过 ≠ 下载必成**：probe 是可达性信号（Range 小请求），真实 GET（curl）可能
+  才暴露 401/403（反爬/凭据/UA 差异，2026-09-02 实测：hf-mirror Range 200 但完整 GET 401）。
+  **终态判定以 `fetch` 的 `attempts[].cause` 为准**，probe/check 只作初筛。
 - **下载完成才算已获取**：`Download complete`/文件大小符合 Content-Length/`sha256` 一致
   三选一作为完成信号；半截文件 + 中断日志 ≠ 已获取。
 - 引擎 stdlib-only（python3.9+），下载委托系统 `curl`；`MIRROR_FETCH_CURL`/

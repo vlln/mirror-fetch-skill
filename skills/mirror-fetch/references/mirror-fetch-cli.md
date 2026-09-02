@@ -20,6 +20,10 @@
 
 `cause` 语义（`--json` 的 `rows[].result.cause`）：
 
+> probe 是**可达性信号**（Range 小请求），不是下载保证——真实 GET 可能才暴露
+> 401/403（2026-09-02 实测 hf-mirror Range 200 但完整 GET 401）。终态判定以
+> `fetch` 的 `attempts[].cause` 为准；probe cause 只作初筛。
+
 | cause | 触发 | 处置建议 |
 |-------|------|---------|
 | `ok` | 200/206（重定向后终态） | 可选端点 |

@@ -18,6 +18,7 @@ class TestProbeClassification(unittest.TestCase):
             "/ok": (200, BODY), "/range": (206, BODY),
             "/blocked": (403, b""), "/gone": (404, b""),
             "/auth": (401, b""), "/ratelimit": (429, b""), "/error": (500, b""),
+            "/redir308": (308, b""),  # 无 Location → urllib 以 HTTPError 抛出（py<3.11 对 308 亦然）
         }))
         self.addCleanup(srv.close)
         base = f"http://{srv.host}"
@@ -28,6 +29,10 @@ class TestProbeClassification(unittest.TestCase):
         self.assertEqual(mf._probe_one(f"{base}/auth", 3)["cause"], "auth")
         self.assertEqual(mf._probe_one(f"{base}/ratelimit", 3)["cause"], "blocked")
         self.assertEqual(mf._probe_one(f"{base}/error", 3)["cause"], "http")
+        # 3xx = 服务存活（重定向由 fetch 的 curl --location 跟随）→ ok
+        r = mf._probe_one(f"{base}/redir308", 3)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["cause"], "ok")
         self.assertFalse(mf._probe_one(f"{base}/blocked", 3)["ok"])
 
     def test_conn_error_on_unused_port(self):

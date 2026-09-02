@@ -160,6 +160,11 @@ def _probe_one(url: str, timeout: float) -> dict:
                     "cause": cause}
     except urllib.error.HTTPError as e:
         elapsed = (time.monotonic() - start) * 1000.0
+        # 3xx = 服务存活并重定向（fetch 的 curl --location 会跟随）→ 视作可达；
+        # python<3.11 的 urllib 不自动跟随 308，会以 HTTPError 形式抛到这里。
+        if e.code in (301, 302, 303, 307, 308):
+            getattr(e, "close", lambda: None)()
+            return {"ok": True, "status": e.code, "latency_ms": round(elapsed, 1), "cause": "ok"}
         cause = "auth" if e.code in (401, 407) else "blocked" if e.code in (403, 429, 451) \
             else "gone" if e.code in (404, 410) else "http"
         getattr(e, "close", lambda: None)()  # 释放响应对象，避免 ResourceWarning
@@ -224,27 +229,76 @@ def checksum_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _attempt_order(rows: list, prefer: str) -> list:
+    """fetch 的尝试顺序：probe ok 的候选按（auto）延迟升序；direct/<host> 强制先试目标。
+
+    probe 只是可达性信号——真实 GET（curl）可能 401/403（反爬/凭据/UA 差异），
+    因此 fetch 按序逐个尝试，一个失败继续下一个，而不是只试第一个。
+    """
+    if prefer == "direct":
+        want = [r for r in rows if r["kind"] == "direct"]
+        return want if want else []
+    if prefer != "auto":
+        want = [r for r in rows if r.get("host") == prefer]
+        return want if want else []
+    ok_rows = [r for r in rows if r["result"]["ok"]]
+    return sorted(ok_rows, key=lambda r: (r["result"]["latency_ms"] is None,
+                                          r["result"]["latency_ms"]))
+
+
+def _curl_error_cause(stderr: str) -> str:
+    """从 curl 错误文本提取 HTTP 状态 → cause（auth/blocked/gone/conn）。"""
+    import re as _re
+    m = _re.search(r"error: (\d{3})", stderr)
+    if not m:
+        return "conn" if any(k in stderr for k in ("timed out", "Could not resolve",
+                                                   "Connection", "reset")) else "http"
+    code = int(m.group(1))
+    if code in (401, 407):
+        return "auth"
+    if code in (403, 429, 451):
+        return "blocked"
+    if code in (404, 410):
+        return "gone"
+    return "http"
+
+
 def fetch(url: str, out: Path, cfg: dict, prefer: str = "auto", timeout: float = 8.0,
           resume: bool = True, sha256: str | None = None, connect_timeout: int = 15,
           probe_fn=None) -> dict:
-    """probe → 选端点 → curl 下载 → 校验。返回结果 dict（调用方按 exit 码处置）。"""
+    """probe → 按序尝试候选端点（curl）→ 校验。返回结果 dict（调用方按 exit 码处置）。"""
     rows = probe_all(url, cfg, timeout=timeout, probe_fn=probe_fn)
-    chosen = choose_endpoint(rows, prefer)
-    if chosen is None:
-        return {"ok": False, "stage": "probe", "rows": rows, "chosen": None,
-                "error": "所有候选（直连+镜像）均不可达；请核对 URL 形式与 gated/凭据状态"}
-    target = chosen["url"]
-    result = {"ok": False, "stage": "fetch", "rows": rows,
-              "chosen": {"kind": chosen["kind"], "host": chosen.get("host"),
-                         "mode": chosen.get("mode"), "url": target}}
+    order = _attempt_order(rows, prefer)
+    if not order:
+        causes = sorted({r["result"]["cause"] for r in rows})
+        return {"ok": False, "stage": "probe", "rows": rows, "attempts": [], "chosen": None,
+                "error": f"无候选可尝试（{', '.join(causes) or '无镜像表'}）；"
+                         f"请核对 URL 形式与 gated/凭据状态"}
     out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = _curl_cmd(target, out, resume, connect_timeout)
-    started = time.monotonic()
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    result["elapsed_s"] = round(time.monotonic() - started, 1)
-    if proc.returncode != 0:
-        result["error"] = (proc.stderr or proc.stdout or "").strip()[:500] or f"curl exit {proc.returncode}"
-        return result
+    attempts = []
+    last_error = None
+    for row in order:
+        target = row["url"]
+        started = time.monotonic()
+        proc = subprocess.run(_curl_cmd(target, out, resume, connect_timeout),
+                              capture_output=True, text=True)
+        elapsed = round(time.monotonic() - started, 1)
+        if proc.returncode == 0:
+            break
+        err = (proc.stderr or proc.stdout or "").strip()[:300] or f"curl exit {proc.returncode}"
+        attempts.append({"kind": row["kind"], "host": row.get("host"), "url": target,
+                         "elapsed_s": elapsed, "error": err,
+                         "cause": _curl_error_cause(err)})
+        last_error = err
+    else:
+        # 全部尝试失败（for-else）
+        return {"ok": False, "stage": "fetch", "rows": rows, "attempts": attempts,
+                "chosen": None,
+                "error": f"全部候选下载失败：{'; '.join(a['error'] for a in attempts)}"}
+    result = {"ok": False, "stage": "fetch", "rows": rows, "attempts": attempts,
+              "chosen": {"kind": row["kind"], "host": row.get("host"),
+                         "mode": row.get("mode"), "url": target},
+              "elapsed_s": elapsed}
     size = out.stat().st_size if out.exists() else 0
     result["size_bytes"] = size
     result["sha256"] = checksum_sha256(out) if size else None
@@ -337,9 +391,13 @@ def cmd_fetch(args, cfg) -> None:
             print(f"endpoint {ep['url']}")
         else:
             print(f"FAILED [{res['stage']}]: {res.get('error', '')}")
+            for a in res.get("attempts", []):
+                print(f"  ✗ {a['kind']} {a.get('host','')}: {a['error']}")
             for r in res.get("rows", []):
                 print("  " + _fmt_row(r))
-    sys.exit(0 if res["ok"] else (4 if res["stage"] == "verify" else 3))
+    # 退出码：0 成功 / 3 probe 阶段无候选 / 4 全部 curl 下载失败 / 5 校验失败
+    stage_code = {"probe": 3, "fetch": 4, "verify": 5}
+    sys.exit(0 if res["ok"] else stage_code.get(res["stage"], 3))
 
 
 def build_parser() -> argparse.ArgumentParser:

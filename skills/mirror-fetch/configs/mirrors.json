@@ -4,7 +4,7 @@
     "huggingface.co": {
       "aliases": ["huggingface.co", "hf.co", "huggingface.com"],
       "mirrors": [
-        {"host": "hf-mirror.com", "mode": "host-replace", "note": "2026-09-02 亲测可达（http/https + HEAD）"}
+        {"host": "hf-mirror.com", "mode": "host-replace", "note": "2026-09-02 probe(Range)可达；gated 仓库完整 GET 仍 401 需凭据"}
       ]
     }
   }

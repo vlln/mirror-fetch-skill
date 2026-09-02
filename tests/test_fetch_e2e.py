@@ -92,20 +92,47 @@ class TestFetchE2E(unittest.TestCase):
 
 class TestCurlInvocation(unittest.TestCase):
     def _shim(self, d):
-        """curl 打桩：把 argv 记到 log，把 env 源内容写进 -o 目标。"""
+        """curl 打桩：argv 记 log；url 含 MF_TEST_FAIL_HOST 时以 401 失败；
+        否则把 env 源内容写进 -o 目标。"""
         shim = Path(d) / "fake-curl"
         log = Path(d) / "curl.log"
         shim.write_text(
             "#!/usr/bin/env python3\n"
             "import sys, os\n"
             "args = sys.argv[1:]\n"
+            "url = args[-1]\n"
             "with open(os.environ['MF_TEST_LOG'], 'a') as f:\n"
             "    f.write('|'.join(args) + '\\n')\n"
+            "fail = os.environ.get('MF_TEST_FAIL_HOST', '')\n"
+            "if fail and fail in url:\n"
+            "    sys.stderr.write('curl: (56) The requested URL returned error: 401\\n')\n"
+            "    sys.exit(22)\n"
             "out = args[args.index('-o') + 1]\n"
             "open(out, 'wb').write(os.environ['MF_TEST_SRC'].encode())\n"
         )
         shim.chmod(0o755)
         return shim, log
+
+    def _fetch_with_shim(self, url, cfg, d, shim_env=None):
+        """用打桩 curl 跑 fetch，隔离/清理环境变量。"""
+        shim, log = self._shim(Path(d))
+        out = Path(d) / "out.bin"
+        old = {k: os.environ.get(k) for k in
+               ("MIRROR_FETCH_CURL", "MF_TEST_LOG", "MF_TEST_SRC", "MF_TEST_FAIL_HOST")}
+        os.environ["MIRROR_FETCH_CURL"] = str(shim)
+        os.environ["MF_TEST_LOG"] = str(log)
+        os.environ["MF_TEST_SRC"] = "stub-content"
+        for k, v in (shim_env or {}).items():
+            os.environ[k] = v
+        try:
+            res = mf.fetch(url, out, cfg, timeout=3)
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        return res, out, log
 
     def test_resume_flag_and_selected_url_passed_to_curl(self):
         upstream = LocalServer(make_handler(CONTENT))
@@ -114,26 +141,45 @@ class TestCurlInvocation(unittest.TestCase):
         self.addCleanup(mirror.close)
         url = f"http://{upstream.host}/f"
         with tempfile.TemporaryDirectory() as d:
-            shim, log = self._shim(Path(d))
-            out = Path(d) / "out.bin"
-            old = os.environ.get("MIRROR_FETCH_CURL")
-            os.environ["MIRROR_FETCH_CURL"] = str(shim)
-            os.environ["MF_TEST_LOG"] = str(log)
-            os.environ["MF_TEST_SRC"] = "stub-content"
-            try:
-                res = mf.fetch(url, out, make_config("127.0.0.1", mirror.host), timeout=3)
-            finally:
-                if old is None:
-                    os.environ.pop("MIRROR_FETCH_CURL", None)
-                else:
-                    os.environ["MIRROR_FETCH_CURL"] = old
-                os.environ.pop("MF_TEST_LOG", None)
-                os.environ.pop("MF_TEST_SRC", None)
+            res, out, log = self._fetch_with_shim(
+                url, make_config("127.0.0.1", mirror.host), Path(d))
             self.assertTrue(res["ok"], res)
             args = log.read_text().strip().split("|")
             self.assertIn("-C", args)  # 续传标志
             self.assertEqual(args[-1], f"http://{mirror.host}/f")  # 选中镜像 URL
             self.assertEqual(out.read_text(), "stub-content")
+
+    def test_probe_ok_but_curl_401_falls_through_and_reports(self):
+        # probe 显示镜像可达（Range 200）但真实 GET 401（反爬/凭据差异）：
+        # fetch 应如实报失败并给 per-attempt 信息，不误报成功
+        upstream = LocalServer(make_handler(b"", routes={"/f": (403, b"")}))
+        mirror = LocalServer(make_handler(CONTENT))
+        self.addCleanup(upstream.close)
+        self.addCleanup(mirror.close)
+        url = f"http://{upstream.host}/f"
+        with tempfile.TemporaryDirectory() as d:
+            res, out, log = self._fetch_with_shim(
+                url, make_config("127.0.0.1", mirror.host), Path(d),
+                shim_env={"MF_TEST_FAIL_HOST": mirror.host})
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["stage"], "fetch")
+            self.assertIn("401", res["error"])
+            self.assertEqual(res["attempts"][0]["cause"], "auth")
+
+    def test_first_candidate_fails_then_falls_back_to_second(self):
+        # auto 按延迟选第一个（镜像），失败后应回退直连
+        upstream = LocalServer(make_handler(CONTENT))
+        mirror = LocalServer(make_handler(CONTENT))
+        self.addCleanup(upstream.close)
+        self.addCleanup(mirror.close)
+        url = f"http://{upstream.host}/f"
+        with tempfile.TemporaryDirectory() as d:
+            res, out, log = self._fetch_with_shim(
+                url, make_config("127.0.0.1", mirror.host), Path(d),
+                shim_env={"MF_TEST_FAIL_HOST": mirror.host})
+            self.assertTrue(res["ok"], res)
+            self.assertEqual(res["chosen"]["kind"], "direct")
+            self.assertEqual(len(res["attempts"]), 1)  # 镜像失败记录在案，直连成功
 
 
 if __name__ == "__main__":
