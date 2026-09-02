@@ -1,12 +1,9 @@
 <h1 align="center">mirror-fetch-skill</h1>
 
 <p align="center">
-  <strong>Generic mirror-aware file downloader for AI agents.</strong><br/>
-  When huggingface.co (or any mirror-table upstream) downloads are slow, time out,
-  or are blocked, mirror-fetch probes reachable domestic mirrors, rewrites the URL,
-  resumes with <code>curl -C -</code>, verifies the file, and records which endpoint
-  was actually used — so agents stop misreporting "unavailable" for sources that
-  were merely slow.
+  <strong>内置镜像站地址知识库（KB）+ 查址工具，让 AI agent 在下载被墙/变慢时知道该用什么镜像。</strong><br/>
+  面向文件/模型/仓库下载（HuggingFace、GitHub raw），给出镜像站地址、URL 映射方式与
+  实测日期；下载由 agent 自己用 <code>curl -C -</code> 完成。知识库可搜索、可登记新镜像。
 </p>
 
 <p align="center">
@@ -16,19 +13,27 @@
 
 ---
 
-## What it does
+## 为什么是"知识库"而不是下载器
 
-`mirror-fetch` is a config-driven engine (same family as
-[`mip`](https://github.com/vlln/mip), but for **file/URL downloads** instead of OCI
-images): an upstream→mirror table, a probe step that classifies reachability
-(`ok/blocked/auth/gone/timeout/conn`), URL rewriting (`host-replace`/`prefix`),
-resumable download via system `curl -C -`, and sha256 verification.
+复现 agent 缺的不是下载能力（curl 人人会），是**该用哪个镜像站、镜像站怎么映射 URL**
+的知识——尤其在国内网络下：HuggingFace 要换 hf-mirror.com、GitHub raw 要走 prefix
+代理、gated 仓库镜像也拿不到（是凭据问题不是镜像问题）。这些知识散落在 mip/gip 配置与
+各 run 的现场摸索里，本项目把它们收进一个带实测日期的知识库，agent 查址后自行下载。
 
-It exists because of a measured failure mode in bio-reproducer calibration runs:
-downloads that were slow or blocked got reported as "unavailable" (S_MISJUDGE /
-S_DL_INCOMPLETE in `calibration-failure-taxonomy-v2.md`), when a mirror or a retry
-would have succeeded. The skill gives agents a deterministic probe→fetch path and
-an honest terminal-state classification.
+定位差异（对比 [mip](https://github.com/vlln/mip)）：
+
+| | mip / image-mirror-skill | 本项目 mirror-fetch |
+|---|---|---|
+| 对象 | OCI 镜像（docker pull 语义） | 文件/模型/仓库下载（curl 语义） |
+| 主动性 | probe + pull + retag 全套 | **只查址**：lookup/search/list/add/validate，零网络请求 |
+| 下载执行 | mip 自己做 | agent 自己 curl（续传纪律 `-C -`） |
+
+## 内置镜像站地址（v0.2）
+
+- **HuggingFace** → `hf-mirror.com`（host-replace；2026-09-02 实测可达）
+- **GitHub / raw / release** → `gh-proxy.com`、`gh.llkk.cc`、`ghfast.top`、`ghproxy.net`
+  （prefix 前缀式；清单继承自 mip configs/gip.yaml）
+- **服务目录**（非 host-replace，线索型）：ModelScope（魔搭）、Docker Hub registry 镜像指引
 
 ## Installation
 
@@ -49,12 +54,12 @@ skit install ./mirror-fetch-skill --skill mirror-fetch
 
 | Skill | Description |
 |-------|-------------|
-| [`mirror-fetch`](skills/mirror-fetch/SKILL.md) | Probe domestic mirrors for slow/blocked file downloads (HF first), fetch with resume, verify, and classify "unavailable vs not-attempted" honestly. |
+| [`mirror-fetch`](skills/mirror-fetch/SKILL.md) | 查镜像站地址与 URL 映射（HF/GitHub 等），搜/登记镜像知识库；下载用 curl 自己做。 |
 
 ## Requirements
 
-- `python3` ≥ 3.9（引擎纯 stdlib，无第三方依赖）
-- `curl`（下载委托，含 `-C -` 续传与 Range 支持）
+- `python3` ≥ 3.9（纯 stdlib，零依赖；工具本身不发网络请求）
+- `curl`（下载由 agent 执行，工具不调用）
 
 ## Tests（全离线）
 
@@ -62,8 +67,8 @@ skit install ./mirror-fetch-skill --skill mirror-fetch
 python3 -m unittest discover -s tests -v
 ```
 
-单测覆盖 URL 重写/配置校验/端点选择；e2e 用本地双 HTTP server（直连 403 + 镜像可达、
-全不可达、sha256 校验失败、curl 打桩验证 `-C -`）驱动完整 fetch 路径，不需要外网。
+覆盖：知识库 schema/validate、lookup（含别名命中）、host-replace/prefix URL 映射、
+search、add 治理（去重/日期戳/非法输入拒绝）。
 
 ## License
 

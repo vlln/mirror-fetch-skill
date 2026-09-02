@@ -1,94 +1,79 @@
-# mirror-fetch CLI 参考
+# mirror-fetch CLI 参考（知识库查址/维护工具）
 
-引擎：`scripts/mirror-fetch`（python3 stdlib，3.9+）。所有子命令支持 `--config <json>`
-（默认 `$_S/configs/mirrors.json`）。下载委托系统 `curl`，需在 PATH（`requires.bins`）。
+引擎：`scripts/mirror-fetch`（python3 stdlib，3.9+）。**本工具不发起任何网络请求**——
+只读写知识库 JSON（默认 `$_S/configs/mirrors.json`，可用 `MIRROR_FETCH_CONFIG` 或
+`--config` 覆盖）。下载请按 lookup 输出用 `curl -C -` 自行执行。
 
 ## 子命令
 
+### `mirror-fetch lookup <URL 或 host>`
+
+命中上游（含别名）→ 打印 howto + 候选镜像（含 verified 日期/note）；若输入是完整
+URL，额外打印**每个候选镜像下可直接 curl 的 URL**（host-replace 已换域、prefix 已加前缀）。
+
+未命中 → 列出现有上游 + 提示自行搜索后 `add` 入库。
+
 ### `mirror-fetch list`
 
-列出镜像表（上游 → 候选镜像 + mode + note）。URL 上游不在表内 → 无镜像可用。
+列出全部上游 → 镜像（mode/verified），以及「已知镜像站服务目录」（含非 host-replace
+型服务，如 ModelScope——只作线索，使用时自行确认差异）。
 
-### `mirror-fetch probe <url> [--timeout 8] [--json]`
+### `mirror-fetch search <关键词>`
 
-直连 + 各候选镜像逐个 GET `Range: bytes=0-255` 探测（读 256B 即断）。
+按关键词匹配上游 host/别名、镜像 url/note、服务目录 name/url/for/note。
 
-非 JSON 输出每行：
-```
-<kind:直连|镜像[mode]>  <host>  <OK|BLOCKED|AUTH(需凭据)|GONE(404)|TIMEOUT|CONN|HTTP n|OTHER>  <latency_ms>  <url>
-```
+### `mirror-fetch add <upstream> <镜像url> [--mode host-replace|prefix] [--note ...] [--verified YYYY-MM-DD]`
 
-`cause` 语义（`--json` 的 `rows[].result.cause`）：
+把实测过的镜像写进知识库。治理规则（离线）：
+- url 必须是 http(s)；mode ∈ {host-replace, prefix}；违反即报错不写入
+- 同 upstream 同 url 去重（第二次报"已存在"，不重复写）
+- `verified` 缺省 = 今天；手工传日期须 YYYY-MM-DD
+- upstream 不存在时自动新建条目（aliases 空、howto 空——随后可手工补 howto）
 
-> probe 是**可达性信号**（Range 小请求），不是下载保证——真实 GET 可能才暴露
-> 401/403（2026-09-02 实测 hf-mirror Range 200 但完整 GET 401）。终态判定以
-> `fetch` 的 `attempts[].cause` 为准；probe cause 只作初筛。
+**纪律：先实测再 add**（curl -I / 下载小文件验证），禁止把没验证的地址入库。
 
-| cause | 触发 | 处置建议 |
-|-------|------|---------|
-| `ok` | 200/206（重定向后终态） | 可选端点 |
-| `blocked` | 403/429/451 | 封锁信号 → 试镜像；可判 unavailable（附状态码） |
-| `auth` | 401/407 | **凭据问题（gated）**，镜像无效 → 需凭据注入通道 |
-| `gone` | 404/410 | 源不存在/URL 形式错 → 先核对 URL 再判 unavailable |
-| `timeout` / `conn` | 超时 / 连接失败 | 网络质量 → 续传重试；记 not_attempted 而非 unavailable |
-| `http` | 其余 4xx/5xx | 按状态码人工裁决 |
+### `mirror-fetch validate`
 
-### `mirror-fetch check <url> [--timeout 8] [--json]`
+知识库完整性检查（CI/测试用）：每 upstream 的 mirrors 非空、url http(s)、mode 枚举、
+verified 日期格式；services 条目须有 name。违规 → 列出并退出码 1。
 
-= probe + cause 汇总 + 结论（无可用端点时给出分类指引）。用于"不可获取 vs 未获取"
-的终态判定。
+退出码：`0` 成功；`1` validate 发现违规；`2` 用法/参数错（含 add 的非法输入）。
 
-### `mirror-fetch rewrite <url>`
-
-列出直连与各候选重写 URL（mode: host-replace/prefix）。URL 不在表内会提示。
-
-### `mirror-fetch fetch <url> -o <dest> [--mirror auto|direct|<host>] [--timeout 8]
-[--no-resume] [--sha256 <hex>] [--json]`
-
-probe → 选端点 → `curl --fail --location -sS --connect-timeout 15 --retry 3
---retry-all-errors [-C -] -o <dest> <url>` → 校验（--sha256 强制比对；否则非空）。
-
-- `--mirror auto`（默认）：可达（cause=ok）候选中**延迟最小**者；直连被封但镜像可达
-  时自动落镜像。`direct`：强制直连。`<host>`：强制指定镜像。
-- `--no-resume`：去掉 `-C -`（正常不要用；续传是默认纪律）。
-- 输出（非 JSON）：
-  ```
-  OK <dest>  <bytes>  <elapsed>s  via <直连|镜像 host (mode)>
-  sha256 <hex>
-  endpoint <实际使用的 URL>
-  ```
-
-退出码：`0` 成功；`2` 用法错；`3` 无可达端点（probe 阶段失败）；`4` 下载失败
-（curl 非零，含 5xx）；`5` sha256 不符或产物为空（verify 阶段失败）。
-
-## 配置格式（configs/mirrors.json）
+## 知识库格式（configs/mirrors.json）
 
 ```json
 {
+  "format": "mirror-kb/1",
+  "updated": "YYYY-MM-DD",
   "upstreams": {
     "huggingface.co": {
-      "aliases": ["huggingface.co", "hf.co"],
+      "aliases": ["hf.co"],
+      "howto": "把 huggingface.co 换成 hf-mirror.com，路径不变（host-replace）。",
       "mirrors": [
-        {"host": "hf-mirror.com", "mode": "host-replace", "note": "2026-09-02 亲测可达"}
+        {"url": "https://hf-mirror.com", "mode": "host-replace",
+         "verified": "2026-09-02", "note": "实测日期/限制"}
       ]
     }
-  }
+  },
+  "services": [
+    {"name": "ModelScope（魔搭）", "url": "https://modelscope.cn", "for": "模型",
+     "note": "非 host-replace：需按仓库名搜索，用其 CLI/页面下载"}
+  ]
 }
 ```
 
-- `mirrors[].host` 可用 `"host:mode"` 简写；mode ∈ `host-replace`（换域保 path/query）
-  | `prefix`（镜像域 + 原完整 URL，如 gh-proxy 型）。
-- `aliases` 缺省为空；上游 key 与别名匹配 URL 的 host（端口剥离）。
-- **新增上游**：加一个 key + 实测可达的镜像即生效（引擎通用，无代码改动）；
-  镜像 `note` 记录实测日期。新镜像必须先 `probe` 验证再入库，禁止未实测即添加。
+- `mode`: `host-replace` = 换域名保路径（HF 类）；`prefix` = 镜像前缀 + 原完整 URL
+  （GitHub proxy 类）。条目来源如果是继承的配置（如 mip configs/gip.yaml），在 note
+  注明出处，`verified` 留空或写继承源的实测日——不要冒充"本环境实测"。
+- `services`：信息性目录，可收录不能直接改写 URL 但"可能有用"的镜像站
+  （ModelScope、registry mirror 指引等），note 说明与 host-replace 的差异。
 
-## 环境变量（测试/CI 打桩，正式流程勿设置）
+## 环境变量
 
-- `MIRROR_FETCH_CURL`：curl 可执行路径替代（单测用假 curl 捕获 argv）。
-- `MIRROR_FETCH_CONFIG`：镜像表路径替代。
+- `MIRROR_FETCH_CONFIG`：知识库路径替代（测试/临时库用）。
 
 ## 测试
 
 ```bash
-python3 -m unittest discover -s tests -v   # 全离线：单测 + 本地双 http server e2e
+python3 -m unittest discover -s tests -v   # 全离线（KB schema/lookup/mapped_urls/add 治理）
 ```

@@ -1,19 +1,19 @@
 ---
 name: mirror-fetch
 description: >
-  Use this skill when downloading files (datasets, model weights, supplementary
-  data) from huggingface.co — or any upstream listed in the mirror table — is
-  slow, times out, or is blocked: probe reachable domestic mirrors, rewrite the
-  URL, resume the download with curl -C -, and verify the result. Activate when
-  a download fails with network errors, when the agent wants to check whether a
-  source is truly unreachable before declaring it unavailable, or when asked to
-  accelerate a large file download from a mirror-supported upstream.
+  Use this skill when a download (dataset, model weights, repo files) from
+  huggingface.co, github.com / raw.githubusercontent.com — or any upstream in
+  the built-in mirror knowledge base — is slow, times out, or is blocked:
+  look up the mirror site addresses and URL-mapping rules, then download
+  yourself with curl. Also use it to search the built-in mirror-site catalog
+  or to record a newly verified mirror into the knowledge base. This is a
+  knowledge base, not a downloader: it never issues network requests.
 
 # Optional: metadata ────────────────────────────────
 license: MIT
 metadata:
   author: vlln
-  version: "0.1.0"
+  version: "0.2.0"
 
 # Optional: skit requirements ───────────────────────
 requires:
@@ -21,69 +21,59 @@ requires:
     - curl
 ---
 
-# mirror-fetch
+# mirror-fetch（镜像站知识库）
 
-Use this skill when a data/model download from an upstream in the mirror table
-(`$_S/configs/mirrors.json`; currently `huggingface.co`) is **slow, times out,
-or returns network errors**. The engine probes the direct URL and each candidate
-mirror, picks a reachable endpoint, downloads with `curl -C -` resume, and
-verifies. It also answers the honest question behind every failed download:
-*is the source unavailable, or did we just not get it?*
+复现/下载慢的根因常常不是"不会下载"，而是"不知道该用哪个镜像站、镜像站怎么映射
+URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json` 内置上游 →
+候选镜像（含映射方式与实测日期），工具 `$_S/scripts/mirror-fetch` 只做查址/搜索/
+维护（**不发起任何网络请求**）；下载由 agent 自己用 `curl -C -` 执行。
 
-Script: `$_S/scripts/mirror-fetch`（python3 stdlib，无第三方依赖；下载委托系统
-`curl`）。配置表：`$_S/configs/mirrors.json`。CLI 全量参考：`$_S/references/mirror-fetch-cli.md`
-（flags / JSON 输出 / 退出码 / 新增上游）。
+## 什么时候用
 
-## When to use
-
-- `curl`/下载失败：超时、`Connection reset`、SSL EOF、403/429/451（触发镜像）
-- 下载极慢（如 5-25 MB/min 级别的 HuggingFace 大文件）——先用 `mirror-fetch check` 量化
-- 判定一个数据源"不可获取 vs 未获取"（对照 ADR-0011 终态类别：`unavailable` 需真实访问墙
-  证据；传输层失败是 `not_attempted`，**不是**不可获取）——用 `mirror-fetch check`
-- 大文件下载提速（已知镜像表内的上游）
-
-## 先分清问题类型（避免误用）
-
-| 症状 | 判定方法 | 是否 mirror-fetch 的活 |
-|------|---------|----------------------|
-| 慢 / 超时 / SSL 断 / 403 封锁 | `mirror-fetch probe <url> --json` | ✅ 是 |
-| **404** | `mirror-fetch check` 报 `gone` → **先核对上游 URL 形式**（如 `models` vs `datasets` 路径、缺 `/resolve/main/`、`/datasets/` 前缀缺失），再怀疑网络 | ⚠️ 镜像治不了 404——404 通常是 URL 错（S_MISJUDGE 型） |
-| **401/407**（gated 仓库如 UNI 权重） | `mirror-fetch check` 报 `auth` | ❌ 不是——gated 是凭据问题，镜像无效；如实报"需凭据注入通道"（E_CONTROLLED/I_*），**不得声称不可获取** |
-| 镜像表外的上游（NCBI/GEO/Zenodo/figshare） | `mirror-fetch list` 无该上游 | ❌ 无镜像可走；只能续传重试/换网络，见 Gotchas |
+- huggingface.co / github.com 相关下载慢、超时、Connection reset、403/429（先查镜像再重试）
+- 需要确认"到底有没有可用镜像"再决定怎么下载
+- agent 自行搜到一个新镜像站、想验证并**登记进知识库**（供以后复用）
 
 ## Workflow
 
-1. **量化问题**：`mirror-fetch probe <url> --json` → 看直连与各镜像的
-   `cause`（ok/blocked/auth/gone/timeout/conn）与延迟。
-2. **能走镜像就走镜像**：`mirror-fetch fetch <url> -o <dest> [--sha256 <hex>]`。
-   auto 模式在可达候选中选延迟最小者；直连被封(403)但镜像可达时会自动落镜像。
-3. **续传即重跑**：网络中途断开后，**用同一命令同一输出路径重跑**——引擎带
-   `curl -C -`，幂等续传，不需要清掉半截文件。
-4. **校验**：给了 `--sha256` 则下载后强制比对（不符 → verify 阶段失败，退出码 5）；
-   没给则至少非空。产物非空是"已获取"的最低证据（ADR-0011 §2.1）。
-5. **如实记录 endpoint**：fetch 输出含 `chosen.url`（实际端点）——把它写进获取日志，
-   供跨批次可比性（用了哪个镜像/直连，同一次运行内可能不同）。
-6. **判定落盘**：仍全部不可达时，用 `mirror-fetch check` 的 cause 分类决定终态：
-   `auth` → 凭据问题；`blocked`/`gone` 需附真实状态码 → 可判 `unavailable`；
-   仅 `timeout`/`conn` → 只能记 `not_attempted`（"未获取"，非"不可获取"）。
+1. **查址**：`mirror-fetch lookup <上游URL或host>` —— 命中则打印 howto + 候选镜像 +
+   具体可用 URL（host-replace 已换好域 / prefix 已加前缀）。
+2. **照 howto 自己下载**（工具不发网络，下载是你的活）：
+   - host-replace 型（HF → hf-mirror.com）：`curl -C -L --fail -o <dest> <镜像URL>`
+   - prefix 型（GitHub 系）：`curl -C -L --fail -o <dest> https://gh-proxy.com/<原完整URL>`
+   - git clone：`git clone https://gh-proxy.com/https://github.com/o/r.git`
+   - **续传纪律**：中断后用同一命令同一输出路径重跑（`-C -` 幂等续传），不要装 wget/aria2c
+3. **知识库没有该上游**：`mirror-fetch list` 看全表 → `mirror-fetch search <关键词>`
+   看服务目录（含 ModelScope 这类非 host-replace 项）→ 仍无则自行搜索可用镜像，
+   **实测通过后** `mirror-fetch add <upstream> <镜像url> --note <实测日期/限制>` 入库
+   （离线治理：去重 + verified 日期戳 + mode 校验）。
+4. **镜像疑似失效**：看条目 `verified` 日期判断新鲜度 → 直接 probe 该镜像站
+   （curl -I 或下小文件）→ 确认失效则换其他候选或另寻新镜像入库。
+
+## 下载前的分诊（镜像救不了的情况，别浪费时间）
+
+| 症状 | 判定 | 处置 |
+|------|------|------|
+| 慢/超时/SSL 断/403 | 网络或封锁 | 查镜像 → 用镜像 URL 下载 |
+| **404 / Repository Not Found** | URL 形式错（S_MISJUDGE 型） | **先核对 URL**：models vs datasets 路径、缺 `/resolve/main/`、缺 `/datasets/`——镜像救不了 404 |
+| **401/407**（HF gated 仓库等） | 凭据问题 | 镜像同样 401 → 需 token/凭据通道；如实报告，不得称"不可获取" |
+| 镜像表外且无镜像（NCBI/GEO/Zenodo/figshare） | 无镜像生态 | 只能续传重试/换网络/换时段 |
+| OCI 镜像（docker pull） | 不是本 KB 的活 | 走 `mip`（image-mirror-skill，含 probe/镜像表） |
+
+## 维护纪律（更新知识库时）
+
+- **只收实测过的地址**：亲自 curl/下载验证后再 `add`；`verified` 记实测日期
+  （来源 mip/gip 配置的条目在 note 注明出处，不冒充"本环境实测"）
+- **不要臆造镜像**：宁可 knowledge base 缺条目让 agent 自己搜，也不放没验证的地址
+- **mode 只能 host-replace 或 prefix**（换域保路径 / 前缀式）；"同名仓库但 API 不同"
+  的服务（如 ModelScope）放 `services` 目录而非 upstreams，note 说明差异
+- Docker Hub 类 registry 镜像表由 mip 维护（本 KB services 目录只放指引，不放清单）
 
 ## Gotchas
 
-- **镜像只治"慢/被封的公开文件"，不治 gated**：401/407 是凭据问题（如 HF gated 仓库），
-  任何镜像都返回同样的 401。报告为"需凭据"，不要写"网络不可达"或"不可获取"。
-- **404 ≠ 网络问题**：`gone` 时先检查 URL 是否与来源（论文/数据声明/entry bundle）逐字
-  一致——`models` 与 `datasets` 的 path 不同、HF 需要 `/resolve/main/<file>`、`/datasets/`
-  前缀不能省。改形式后先 `probe` 再下载（历史教训：bench-230 用错 URL 形式误判不可达）。
-- **镜像可用性会漂移**：每次使用前 `probe`，不要凭记忆硬编码某个镜像可用；表内
-  `note` 只记录上次实测日期。
-- **续传纪律**：`curl -C -`（Range/HTTP 206）在 NCBI/HF 均实测可用；**不要**为续传安装
-  wget/aria2c（BL-024）。引擎已内置 `-C -`，除非 `--no-resume`。
-- **不要发明镜像**：只使用 `configs/mirrors.json` 表内候选；新镜像需实测后由维护者
-  加表（见 `references/mirror-fetch-cli.md` 的新增上游一节）。
-- **probe 通过 ≠ 下载必成**：probe 是可达性信号（Range 小请求），真实 GET（curl）可能
-  才暴露 401/403（反爬/凭据/UA 差异，2026-09-02 实测：hf-mirror Range 200 但完整 GET 401）。
-  **终态判定以 `fetch` 的 `attempts[].cause` 为准**，probe/check 只作初筛。
-- **下载完成才算已获取**：`Download complete`/文件大小符合 Content-Length/`sha256` 一致
-  三选一作为完成信号；半截文件 + 中断日志 ≠ 已获取。
-- 引擎 stdlib-only（python3.9+），下载委托系统 `curl`；`MIRROR_FETCH_CURL`/
-  `MIRROR_FETCH_CONFIG` 环境变量用于打桩/自定义配置（测试与 CI 用，勿在正式流程设置）。
+- 本工具**零网络请求**——它给的是知识，不是结果；下载结果以你的 curl 实测为准。
+- 镜像可用性会漂移：条目的 `verified` 只是上次实测日期，用前自行确认。
+- 404 ≠ 网络问题：先查 URL 与来源（论文/数据声明/entry bundle）是否逐字一致。
+- gated（401）≠ 镜像问题：任何镜像都拿不到，需要凭据通道。
+- GitHub raw 走 prefix 代理；`github.com` 条目别名已含 `raw.githubusercontent.com` 等，
+  lookup 任意一个都会命中同一组镜像。

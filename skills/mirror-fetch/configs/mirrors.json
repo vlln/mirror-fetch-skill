@@ -1,11 +1,71 @@
 {
-  "_comment": "Upstream → mirror candidate table (engine: skills/mirror-fetch/scripts/mirror-fetch). mirrors[].host 可含 ':mode'（默认 host-replace）；mode ∈ {host-replace, prefix}。note 记录实测日期（镜像可用性会漂移，agent 每次使用前 probe）。新增上游：加一个 key 即可，engine 通用。",
+  "format": "mirror-kb/1",
+  "updated": "2026-09-02",
+  "_comment": "镜像站知识库。upstreams: 可直接改写 URL 下载的上游（mode: host-replace=换域保路径 / prefix=镜像前缀+原URL）。services: 已知镜像站服务目录（含不能 host-replace 的，如 ModelScope）。verified=本仓库环境实测日期；来源为 mip/gip 配置的条目注明出处，使用前自行 probe（镜像可用性会漂移）。",
   "upstreams": {
     "huggingface.co": {
-      "aliases": ["huggingface.co", "hf.co", "huggingface.com"],
+      "aliases": ["hf.co", "huggingface.com"],
+      "howto": "文件/模型/数据集下载：把 huggingface.co 换成 hf-mirror.com，路径不变（host-replace）。gated 仓库（需 token）在镜像上同样 401——那是凭据问题不是镜像问题，需 HF_TOKEN 凭据通道。",
       "mirrors": [
-        {"host": "hf-mirror.com", "mode": "host-replace", "note": "2026-09-02 probe(Range)可达；gated 仓库完整 GET 仍 401 需凭据"}
+        {
+          "url": "https://hf-mirror.com",
+          "mode": "host-replace",
+          "verified": "2026-09-02",
+          "note": "2026-09-02 Range probe 可达；对 gated 仓库完整 GET 返回 401（凭据，非镜像失效）"
+        }
+      ]
+    },
+    "github.com": {
+      "aliases": ["raw.githubusercontent.com", "codeload.github.com", "gist.githubusercontent.com", "gh.io"],
+      "howto": "git clone：git clone https://gh-proxy.com/https://github.com/o/r.git；raw 文件下载：curl https://gh-proxy.com/https://raw.githubusercontent.com/o/r/main/f；release/archive 同理加前缀。Docker/OCI 镜像另走 mip（image-mirror-skill）。",
+      "mirrors": [
+        {
+          "url": "https://gh-proxy.com",
+          "mode": "prefix",
+          "note": "来源 mip configs/gip.yaml（git clone + 文件下载 prefix 镜像表）；gip 每次使用会 probe 自选，本 KB 未单独验证"
+        },
+        {
+          "url": "https://gh.llkk.cc",
+          "mode": "prefix",
+          "note": "来源 mip configs/gip.yaml，同上"
+        },
+        {
+          "url": "https://ghfast.top",
+          "mode": "prefix",
+          "note": "来源 mip configs/gip.yaml，同上"
+        },
+        {
+          "url": "https://ghproxy.net",
+          "mode": "prefix",
+          "note": "来源 mip configs/gip.yaml，同上"
+        }
       ]
     }
-  }
+  },
+  "services": [
+    {
+      "name": "hf-mirror.com",
+      "url": "https://hf-mirror.com",
+      "for": "HuggingFace 文件/模型/数据集",
+      "note": "host-replace 直连用法；2026-09-02 本环境 Range probe 实测可达"
+    },
+    {
+      "name": "ModelScope（魔搭）",
+      "url": "https://modelscope.cn",
+      "for": "常见开源模型（HF 同源仓库常在此有镜像）",
+      "note": "非 host-replace：需在魔搭内按仓库名搜索，用其 CLI/页面下载；同名仓库不代表字节一致，用后自行校验"
+    },
+    {
+      "name": "GitHub prefix 代理",
+      "url": "https://gh-proxy.com 等",
+      "for": "GitHub clone / raw 文件 / release",
+      "note": "前缀式；动态清单见 mip configs/gip.yaml（gh-proxy.com / gh.llkk.cc / ghfast.top / ghproxy.net 等，gip 每次 probe 实测选择）"
+    },
+    {
+      "name": "Docker Hub / 各 registry 镜像",
+      "url": "docker.1panel.live 等",
+      "for": "OCI 镜像拉取",
+      "note": "registry mirror 配置或 mip pull（本项目不做镜像下载）；完整候选表见 mip configs/mip.yaml（docker.io/ghcr.io → 十余个镜像，2026-06-13 亲测）"
+    }
+  ]
 }

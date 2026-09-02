@@ -1,93 +1,95 @@
 #!/usr/bin/env python3
-"""mirror-fetch — 通用上游文件下载镜像引擎（配置表驱动，probe→rewrite→fetch→verify）。
+"""mirror-fetch — 镜像站知识库查询器（知识库，不是下载器）。
 
-参考 mip（configs/mip.yaml 镜像表 + probe 选最快 + rewrite/pull/retag）的方式，
-但面向**文件/URL 下载**而非 OCI 镜像：当 huggingface.co 等上游（见
-configs/mirrors.json 的表）下载慢/超时/被封锁时，探测候选镜像可达性 → 重写 URL →
-curl -C - 续传下载 → 校验。
+设计立场：复现 agent 缺的不是下载能力（curl 人人会），是「该用哪个镜像、镜像站
+怎么映射到 URL」的**知识**。本工具只做知识库动作：
 
-设计约束：
-- python3 stdlib only（3.9+，runtime 镜像 python3.10 可用），无第三方依赖；
-- 下载委托系统 curl（BL-024 续传纪律：`curl -C -`，Range/HTTP 206）；
-- 镜像/凭据/无镜像三类问题严格分开：本工具只治「公开文件慢/被封」；
-  gated/需凭据（401/407）会如实报 auth，镜像解决不了；
-- 每次使用前 probe（镜像可用性会漂移），不硬编码镜像；
-- 输出含实际使用的 endpoint（provenance），供跨批次可比性记录。
+  - lookup <url|host>   命中上游 → 打印 howto + 候选镜像 + 具体可用 URL 示例
+  - list                列出知识库里的上游与镜像
+  - search <关键词>      搜上游/镜像/note
+  - add <upstream> <镜像URL>   新增/更新镜像条目（离线治理：去重、mode 枚举、日期戳）
+  - validate            知识库完整性检查（CI/测试用）
 
-用法摘要见 references/mirror-fetch-cli.md；`mirror-fetch <cmd> --help` 看各子命令。
+下载本身交给 agent：拿到镜像地址后用 `curl -C -`（续传纪律）自行执行。本工具
+**不发起任何网络请求**——镜像可用性会漂移，agent 用前自行实测（或看条目里的
+verified 日期判断新鲜度），本知识库只负责"给对地址、给对映射方式"。
+
+知识库：`configs/mirrors.json`（upstream → mirrors[]，条目带 verified 实测日期）。
+镜像来源纪律：只收本环境实测过或来自已实测配置（mip/gip）的地址，禁止凭空臆造；
+新增条目先实测（curl/下载验证）再 `mirror-fetch add` 入库。
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
+import datetime
 import json
 import os
-import shutil
-import socket
-import subprocess
+import re
 import sys
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
-DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "configs" / "mirrors.json"
-PROBE_CHUNK = 256  # probe 时 GET Range 读取的字节数
-
-# ── 配置 ──────────────────────────────────────────────────────────────
-_MODE_HOST_REPLACE = "host-replace"
-_MODE_PREFIX = "prefix"
-_MODES = (_MODE_HOST_REPLACE, _MODE_PREFIX)
+DEFAULT_KB = Path(__file__).resolve().parent.parent / "configs" / "mirrors.json"
+MODES = ("host-replace", "prefix")  # 镜像 URL 与上游 URL 的映射方式
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def default_config_path() -> Path:
+def kb_path() -> Path:
     override = os.environ.get("MIRROR_FETCH_CONFIG")
-    return Path(override) if override else DEFAULT_CONFIG
+    return Path(override) if override else DEFAULT_KB
 
 
-def load_config(path=None) -> dict:
-    """读镜像表并校验形状。返回 {upstream: {aliases, mirrors: [{host, mode, note}]}}。"""
-    p = Path(path) if path else default_config_path()
+# ── 知识库读取/保存 ───────────────────────────────────────────────────
+def load_kb(path=None) -> dict:
+    """读知识库。返回 {'path', 'raw', 'upstreams'}。"""
+    p = Path(path) if path else kb_path()
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise SystemExit(f"error: 镜像表不存在: {p}")
+        raise SystemExit(f"error: 知识库不存在: {p}")
     except json.JSONDecodeError as e:
-        raise SystemExit(f"error: 镜像表不是合法 JSON: {p}: {e}")
+        raise SystemExit(f"error: 知识库不是合法 JSON: {p}: {e}")
     upstreams = raw.get("upstreams")
     if not isinstance(upstreams, dict) or not upstreams:
         raise SystemExit(f"error: {p} 缺 upstreams 映射")
-    cfg = {}
+    return {"path": p, "raw": raw, "upstreams": upstreams}
+
+
+def save_kb(kb: dict) -> None:
+    kb["raw"]["upstreams"] = kb["upstreams"]
+    kb["raw"]["updated"] = datetime.date.today().isoformat()
+    kb["path"].write_text(json.dumps(kb["raw"], ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+
+
+def validate_kb(upstreams: dict) -> list:
+    """知识库完整性检查，返回违规列表（空 = 通过）。"""
+    errors = []
     for up, body in upstreams.items():
-        if not isinstance(body, dict) or "mirrors" not in body:
-            raise SystemExit(f"error: 上游 {up!r} 缺 mirrors 列表")
-        aliases = [str(a) for a in body.get("aliases", [])]
-        mirrors = []
-        for m in body["mirrors"]:
-            if isinstance(m, str):
-                host, mode = _split_host_mode(m)
-                note = None
-            else:
-                host, mode = _split_host_mode(str(m.get("host", "")))
-                note = m.get("note")
-            if not host:
-                raise SystemExit(f"error: 上游 {up!r} 有空的镜像 host")
-            mirrors.append({"host": host, "mode": mode, "note": note})
-        cfg[up] = {"aliases": aliases, "mirrors": mirrors}
-    return cfg
+        if not isinstance(body, dict):
+            errors.append(f"{up}: 条目必须是对象")
+            continue
+        mirrors = body.get("mirrors")
+        if not isinstance(mirrors, list) or not mirrors:
+            errors.append(f"{up}: mirrors 列表缺失或为空")
+            continue
+        for i, m in enumerate(mirrors):
+            url = m.get("url", "")
+            mode = m.get("mode", "")
+            if not isinstance(url, str) or not re.match(r"^https?://", url):
+                errors.append(f"{up}.mirrors[{i}]: url 需为 http(s) 地址，实得 {url!r}")
+            if mode not in MODES:
+                errors.append(f"{up}.mirrors[{i}]: mode 需 ∈ {MODES}，实得 {mode!r}")
+            verified = m.get("verified")
+            if verified and not _DATE_RE.match(str(verified)):
+                errors.append(f"{up}.mirrors[{i}]: verified 需 YYYY-MM-DD，实得 {verified!r}")
+        howto = body.get("howto")
+        if howto is not None and not isinstance(howto, str):
+            errors.append(f"{up}: howto 需为字符串")
+    return errors
 
 
-def _split_host_mode(s: str):
-    if ":" in s:
-        host, mode = s.rsplit(":", 1)
-        if mode not in _MODES:
-            raise SystemExit(f"error: 未知 mode {mode!r}（可选 {_MODES}）")
-        return host, mode
-    return s, _MODE_HOST_REPLACE
-
-
-# ── URL ───────────────────────────────────────────────────────────────
+# ── URL / 镜像映射（纯函数，离线）────────────────────────────────────
 def normalize_url(url: str) -> str:
     if "://" not in url:
         url = "https://" + url
@@ -97,345 +99,185 @@ def normalize_url(url: str) -> str:
     return urllib.parse.urlunparse(parts)
 
 
-def lookup_upstream(url: str, cfg: dict):
-    """URL host 命中某上游（含别名）→ (upstream_key, body)；否则 (None, None)。"""
-    host = urllib.parse.urlparse(normalize_url(url)).netloc.split(":")[0].lower()
-    for up, body in cfg.items():
+def lookup_upstream(url_or_host: str, upstreams: dict):
+    """URL 或 host 命中某上游（含别名）→ (upstream_key, body)；否则 (None, None)。"""
+    s = url_or_host.strip()
+    if "://" in s:
+        s = urllib.parse.urlparse(normalize_url(s)).netloc.split(":")[0]
+    host = s.split(":")[0].lower()
+    for up, body in upstreams.items():
         aliases = body.get("aliases") or []
         if host == up.lower() or host in (a.lower() for a in aliases):
             return up, body
     return None, None
 
 
-def rewrite_url(url: str, mirror: dict) -> str:
-    """按 mode 重写：host-replace 换域保 path/query；prefix = 镜像域 + 原完整 URL。"""
+def mapped_urls(url: str, mirror: dict) -> list:
+    """按 mode 给出该镜像下可用的 URL（host-replace 换域保路径；prefix 前缀式）。"""
     u = normalize_url(url)
     parsed = urllib.parse.urlparse(u)
-    if mirror["mode"] == _MODE_PREFIX:
-        return f"https://{mirror['host']}/{u}"
-    # host-replace
-    return urllib.parse.urlunparse(
-        (parsed.scheme, mirror["host"], parsed.path, parsed.params, parsed.query, parsed.fragment)
-    )
-
-
-def list_candidates(url: str, cfg: dict):
-    """按配置顺序展开候选镜像 [{'host','mode','url'}]；URL 不在表中 → []。"""
-    up, body = lookup_upstream(url, cfg)
-    if up is None:
-        return []
-    out = []
-    for m in body["mirrors"]:
-        out.append({"host": m["host"], "mode": m["mode"], "note": m.get("note"),
-                    "url": rewrite_url(url, m)})
-    return out
-
-
-# ── probe ─────────────────────────────────────────────────────────────
-def _probe_one(url: str, timeout: float) -> dict:
-    """GET Range: bytes=0..PROBE_CHUNK-1，读 PROBE_CHUNK 字节后即断。
-
-    返回 {ok, status, latency_ms, cause}；cause ∈ ok/blocked/auth/gone/timeout/conn/http/other。
-    blocked=403/429/451；auth=401/407（需凭据，镜像无效）；gone=404/410。
-    """
-    req = urllib.request.Request(url, method="GET", headers={"Range": f"bytes=0-{PROBE_CHUNK - 1}"})
-    start = time.monotonic()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp.read(PROBE_CHUNK)
-            elapsed = (time.monotonic() - start) * 1000.0
-            status = getattr(resp, "status", 200)
-            cause = "ok"
-            if status in (200, 206, 301, 302, 303, 307, 308):
-                cause = "ok"
-            elif status in (401, 407):
-                cause = "auth"
-            elif status in (403, 429, 451):
-                cause = "blocked"
-            elif status in (404, 410):
-                cause = "gone"
-            else:
-                cause = "http"
-            return {"ok": cause == "ok", "status": status, "latency_ms": round(elapsed, 1),
-                    "cause": cause}
-    except urllib.error.HTTPError as e:
-        elapsed = (time.monotonic() - start) * 1000.0
-        # 3xx = 服务存活并重定向（fetch 的 curl --location 会跟随）→ 视作可达；
-        # python<3.11 的 urllib 不自动跟随 308，会以 HTTPError 形式抛到这里。
-        if e.code in (301, 302, 303, 307, 308):
-            getattr(e, "close", lambda: None)()
-            return {"ok": True, "status": e.code, "latency_ms": round(elapsed, 1), "cause": "ok"}
-        cause = "auth" if e.code in (401, 407) else "blocked" if e.code in (403, 429, 451) \
-            else "gone" if e.code in (404, 410) else "http"
-        getattr(e, "close", lambda: None)()  # 释放响应对象，避免 ResourceWarning
-        return {"ok": False, "status": e.code, "latency_ms": round(elapsed, 1), "cause": cause}
-    except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as e:
-        elapsed = (time.monotonic() - start) * 1000.0
-        cause = "timeout" if isinstance(e, (socket.timeout, TimeoutError)) else "conn"
-        return {"ok": False, "status": None, "latency_ms": round(elapsed, 1), "cause": cause}
-    except Exception:  # noqa: BLE001 —— probe 失败不应中断整体
-        return {"ok": False, "status": None, "latency_ms": None, "cause": "other"}
-
-
-def probe_all(url: str, cfg: dict, timeout: float = 8.0, probe_fn=None):
-    """直接 URL + 各候选镜像依次 probe。返回直连 + 镜像结果列表。"""
-    probe = probe_fn or _probe_one
-    direct = {"kind": "direct", "host": urllib.parse.urlparse(normalize_url(url)).netloc,
-              "url": normalize_url(url), "result": probe(normalize_url(url), timeout)}
-    rows = [direct]
-    for c in list_candidates(url, cfg):
-        r = probe(c["url"], timeout)
-        rows.append({"kind": "mirror", "host": c["host"], "mode": c["mode"],
-                     "url": c["url"], "note": c.get("note"), "result": r})
-    return rows
-
-
-def choose_endpoint(rows: dict, prefer: str = "auto") -> dict:
-    """从 probe 结果选下载端点。prefer ∈ auto/direct/<host>。
-
-    规则：auth/gone/blocked 候选不可选（blocked 可尝试镜像但直连被封时镜像常可用，
-    由 probe 各自独立判定）；auto = 可达（ok）候选中延迟最小者；全不可达 → None。
-    """
-    reachable = [r for r in rows if r["result"]["ok"]]
-    if prefer == "direct":
-        want = [r for r in rows if r["kind"] == "direct"]
-        return want[0] if want else None
-    if prefer != "auto":
-        want = [r for r in rows if r.get("host") == prefer]
-        return want[0] if want else None
-    if not reachable:
-        return None
-    return min(reachable, key=lambda r: (r["result"]["latency_ms"] is None, r["result"]["latency_ms"]))
-
-
-# ── fetch ─────────────────────────────────────────────────────────────
-def _curl_cmd(url: str, out: Path, resume: bool, connect_timeout: int) -> list:
-    curl = os.environ.get("MIRROR_FETCH_CURL") or shutil.which("curl")
-    if not curl:
-        raise SystemExit("error: 需要 curl（下载委托 curl -C -，见 BL-024 续传纪律）")
-    cmd = [curl, "--fail", "--location", "-sS", "--connect-timeout", str(connect_timeout),
-           "--retry", "3", "--retry-all-errors"]
-    if resume:
-        cmd += ["-C", "-"]
-    cmd += ["-o", str(out), url]
-    return cmd
-
-
-def checksum_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _attempt_order(rows: list, prefer: str) -> list:
-    """fetch 的尝试顺序：probe ok 的候选按（auto）延迟升序；direct/<host> 强制先试目标。
-
-    probe 只是可达性信号——真实 GET（curl）可能 401/403（反爬/凭据/UA 差异），
-    因此 fetch 按序逐个尝试，一个失败继续下一个，而不是只试第一个。
-    """
-    if prefer == "direct":
-        want = [r for r in rows if r["kind"] == "direct"]
-        return want if want else []
-    if prefer != "auto":
-        want = [r for r in rows if r.get("host") == prefer]
-        return want if want else []
-    ok_rows = [r for r in rows if r["result"]["ok"]]
-    return sorted(ok_rows, key=lambda r: (r["result"]["latency_ms"] is None,
-                                          r["result"]["latency_ms"]))
-
-
-def _curl_error_cause(stderr: str) -> str:
-    """从 curl 错误文本提取 HTTP 状态 → cause（auth/blocked/gone/conn）。"""
-    import re as _re
-    m = _re.search(r"error: (\d{3})", stderr)
-    if not m:
-        return "conn" if any(k in stderr for k in ("timed out", "Could not resolve",
-                                                   "Connection", "reset")) else "http"
-    code = int(m.group(1))
-    if code in (401, 407):
-        return "auth"
-    if code in (403, 429, 451):
-        return "blocked"
-    if code in (404, 410):
-        return "gone"
-    return "http"
-
-
-def fetch(url: str, out: Path, cfg: dict, prefer: str = "auto", timeout: float = 8.0,
-          resume: bool = True, sha256: str | None = None, connect_timeout: int = 15,
-          probe_fn=None) -> dict:
-    """probe → 按序尝试候选端点（curl）→ 校验。返回结果 dict（调用方按 exit 码处置）。"""
-    rows = probe_all(url, cfg, timeout=timeout, probe_fn=probe_fn)
-    order = _attempt_order(rows, prefer)
-    if not order:
-        causes = sorted({r["result"]["cause"] for r in rows})
-        return {"ok": False, "stage": "probe", "rows": rows, "attempts": [], "chosen": None,
-                "error": f"无候选可尝试（{', '.join(causes) or '无镜像表'}）；"
-                         f"请核对 URL 形式与 gated/凭据状态"}
-    out.parent.mkdir(parents=True, exist_ok=True)
-    attempts = []
-    last_error = None
-    for row in order:
-        target = row["url"]
-        started = time.monotonic()
-        proc = subprocess.run(_curl_cmd(target, out, resume, connect_timeout),
-                              capture_output=True, text=True)
-        elapsed = round(time.monotonic() - started, 1)
-        if proc.returncode == 0:
-            break
-        err = (proc.stderr or proc.stdout or "").strip()[:300] or f"curl exit {proc.returncode}"
-        attempts.append({"kind": row["kind"], "host": row.get("host"), "url": target,
-                         "elapsed_s": elapsed, "error": err,
-                         "cause": _curl_error_cause(err)})
-        last_error = err
-    else:
-        # 全部尝试失败（for-else）
-        return {"ok": False, "stage": "fetch", "rows": rows, "attempts": attempts,
-                "chosen": None,
-                "error": f"全部候选下载失败：{'; '.join(a['error'] for a in attempts)}"}
-    result = {"ok": False, "stage": "fetch", "rows": rows, "attempts": attempts,
-              "chosen": {"kind": row["kind"], "host": row.get("host"),
-                         "mode": row.get("mode"), "url": target},
-              "elapsed_s": elapsed}
-    size = out.stat().st_size if out.exists() else 0
-    result["size_bytes"] = size
-    result["sha256"] = checksum_sha256(out) if size else None
-    if sha256:
-        if result["sha256"] != sha256:
-            result["ok"] = False
-            result["stage"] = "verify"
-            result["error"] = f"sha256 不符: 期望 {sha256} 实得 {result['sha256']}"
-            return result
-    result["ok"] = size > 0
-    if not result["ok"]:
-        result["stage"] = "verify"
-        result["error"] = "下载产物为空文件"
-    return result
+    base = mirror["url"].rstrip("/")
+    if mirror["mode"] == "prefix":
+        return [f"{base}/{u}"]
+    return [urllib.parse.urlunparse(
+        (parsed.scheme, urllib.parse.urlparse(base).netloc, parsed.path,
+         parsed.params, parsed.query, parsed.fragment))]
 
 
 # ── CLI ───────────────────────────────────────────────────────────────
-def _fmt_row(r: dict) -> str:
-    res = r["result"]
-    tag = {"ok": "OK", "blocked": "BLOCKED", "auth": "AUTH(需凭据)", "gone": "GONE(404)",
-           "timeout": "TIMEOUT", "conn": "CONN", "http": f"HTTP {res['status']}",
-           "other": "OTHER"}[res["cause"]]
-    lat = f"{res['latency_ms']}ms" if res["latency_ms"] is not None else "-"
-    kind = "直连" if r["kind"] == "direct" else f"镜像[{r.get('mode')}]"
-    return f"{kind:16s} {r.get('host',''):24s} {tag:16s} {lat:10s} {r['url']}"
+def _print_mirror(m: dict, url: str | None = None) -> None:
+    print(f"  - {m['url']}  [{m['mode']}]  (verified {m.get('verified', '未标注')})")
+    if m.get("note"):
+        print(f"    note: {m['note']}")
+    if url:
+        for u in mapped_urls(url, m):
+            print(f"    可用 URL: {u}")
 
 
-def cmd_list(args, cfg) -> None:
-    for up, body in cfg.items():
-        print(f"{up}  aliases={body['aliases'] or '-'}")
+def _miss(target: str, upstreams: dict) -> None:
+    host = target.split(":")[0]
+    print(f"知识库无 {host!r} 的镜像条目。现有上游: {', '.join(sorted(upstreams))}")
+    print("提示: 自行搜索可用镜像并实测后 `mirror-fetch add <upstream> <url> --note ...` 入库")
+
+
+def cmd_lookup(args, kb) -> None:
+    upstreams = kb["upstreams"]
+    up, body = lookup_upstream(args.target, upstreams)
+    if up is None:
+        _miss(args.target, upstreams)
+        return
+    print(f"上游: {up}（别名: {body.get('aliases') or '-'}）")
+    if body.get("howto"):
+        print(f"howto: {body['howto']}")
+    url = args.target if "://" in args.target else None
+    for m in body["mirrors"]:
+        _print_mirror(m, url)
+
+
+def cmd_list(args, kb) -> None:
+    upstreams = kb["upstreams"]
+    for up in sorted(upstreams):
+        body = upstreams[up]
+        howto = (body.get("howto") or "").splitlines()[0][:60]
+        print(f"{up}  别名={body.get('aliases') or '-'}  howto={howto or '-'}")
         for m in body["mirrors"]:
-            note = f"  # {m['note']}" if m.get("note") else ""
-            print(f"  - {m['host']}:{m['mode']}{note}")
+            print(f"  - {m['url']} [{m['mode']}] verified={m.get('verified', '-')}")
+    services = kb["raw"].get("services") or []
+    if services:
+        print("\n已知镜像站服务目录（含非 host-replace 型）:")
+        for s in services:
+            print(f"  - {s.get('name')}  {s.get('url')}  [for: {s.get('for')}]")
+            if s.get("note"):
+                print(f"    note: {s['note']}")
 
 
-def cmd_probe(args, cfg) -> None:
-    rows = probe_all(args.url, cfg, timeout=args.timeout)
-    if args.json:
-        print(json.dumps({"url": args.url, "rows": rows}, ensure_ascii=False, indent=2))
+def cmd_search(args, kb) -> None:
+    upstreams = kb["upstreams"]
+    kw = args.keyword.lower()
+    hits = 0
+    for up, body in upstreams.items():
+        found = kw in up.lower() or any(kw in a.lower() for a in (body.get("aliases") or []))
+        for m in body["mirrors"]:
+            if kw in m["url"].lower() or kw in str(m.get("note", "")).lower():
+                found = True
+        if found:
+            hits += 1
+            print(f"上游: {up}")
+            for m in body["mirrors"]:
+                _print_mirror(m)
+    for s in kb["raw"].get("services") or []:
+        blob = " ".join(str(s.get(k, "")) for k in ("name", "url", "for", "note"))
+        if kw in blob.lower():
+            hits += 1
+            print(f"服务: {s.get('name')}  {s.get('url')}  [for: {s.get('for')}]")
+            if s.get("note"):
+                print(f"  note: {s['note']}")
+    if not hits:
+        print(f"无匹配 {args.keyword!r}。现有上游: {', '.join(sorted(upstreams))}；或 `mirror-fetch list` 看服务目录")
+
+
+def add_entry(kb: dict, upstream: str, mirror_url: str, mode: str,
+              note: str | None = None, verified: str | None = None) -> str:
+    """新增镜像条目（离线治理：去重 + 日期戳）。返回 'added' | 'exists'。"""
+    if not re.match(r"^https?://", mirror_url):
+        raise ValueError(f"镜像 url 需为 http(s) 地址: {mirror_url!r}")
+    if mode not in MODES:
+        raise ValueError(f"mode 需 ∈ {MODES}")
+    body = kb["upstreams"].setdefault(upstream, {"aliases": [], "mirrors": [], "howto": ""})
+    for m in body["mirrors"]:
+        if m.get("url") == mirror_url:
+            return "exists"
+    entry = {"url": mirror_url, "mode": mode,
+             "verified": verified or datetime.date.today().isoformat()}
+    if note:
+        entry["note"] = note
+    body["mirrors"].append(entry)
+    save_kb(kb)
+    return "added"
+
+
+def cmd_add(args, kb) -> None:
+    try:
+        status = add_entry(kb, args.upstream, args.mirror_url, args.mode,
+                           note=args.note, verified=args.verified)
+    except ValueError as e:
+        raise SystemExit(f"error: {e}")
+    if status == "exists":
+        print(f"已存在（跳过）: {args.upstream} → {args.mirror_url}")
         return
-    for r in rows:
-        print(_fmt_row(r))
-    ok = [r for r in rows if r["result"]["ok"]]
-    print(f"可达: {len(ok)}/{len(rows)}" if ok else "全部不可达")
+    print(f"已入库: {args.upstream} → {args.mirror_url} [{args.mode}]")
 
 
-def cmd_rewrite(args, cfg) -> None:
-    cands = list_candidates(args.url, cfg)
-    if not cands:
-        print(f"{args.url}\n  （不在镜像表内：上游 = {urllib.parse.urlparse(normalize_url(args.url)).netloc}）")
-        return
-    print(f"直连: {normalize_url(args.url)}")
-    for c in cands:
-        print(f"  {c['mode']:12s} {c['url']}")
-
-
-def cmd_check(args, cfg) -> None:
-    """判定报告：区分 可达 / 被封(403) / 需凭据(401) / 不存在(404) / 网络(超时) / 无镜像。"""
-    rows = probe_all(args.url, cfg, timeout=args.timeout)
-    if args.json:
-        print(json.dumps({"url": args.url, "rows": rows}, ensure_ascii=False, indent=2))
-        return
-    for r in rows:
-        print(_fmt_row(r))
-    causes = sorted({r["result"]["cause"] for r in rows})
-    if not rows or all(not r["result"]["ok"] for r in rows):
-        print("结论: 无可用端点。原因分类:", ", ".join(causes))
-        if "auth" in causes:
-            print("  → 含需凭据(401/407)：gated 仓库/凭据问题，镜像无效，需凭据注入通道")
-        if "gone" in causes:
-            print("  → 含 404：先核对上游 URL 形式（models vs datasets 路径）是否与来源一致")
-        if "blocked" in causes:
-            print("  → 含 403/429：环境级封锁信号，镜像可达性见上")
-        if "timeout" in causes or "conn" in causes:
-            print("  → 含超时/连接失败：网络质量问题（可续传重试，非不可获取）")
-
-
-def cmd_fetch(args, cfg) -> None:
-    res = fetch(args.url, Path(args.out), cfg, prefer=args.mirror, timeout=args.timeout,
-                resume=not args.no_resume, sha256=args.sha256)
-    if args.json:
-        print(json.dumps(res, ensure_ascii=False, indent=2))
-    else:
-        if res["ok"]:
-            ep = res["chosen"]
-            kind = "直连" if ep["kind"] == "direct" else f"镜像 {ep['host']} ({ep['mode']})"
-            print(f"OK {args.out}  {res['size_bytes']} bytes  {res['elapsed_s']}s  via {kind}")
-            if res["sha256"]:
-                print(f"sha256 {res['sha256']}")
-            print(f"endpoint {ep['url']}")
-        else:
-            print(f"FAILED [{res['stage']}]: {res.get('error', '')}")
-            for a in res.get("attempts", []):
-                print(f"  ✗ {a['kind']} {a.get('host','')}: {a['error']}")
-            for r in res.get("rows", []):
-                print("  " + _fmt_row(r))
-    # 退出码：0 成功 / 3 probe 阶段无候选 / 4 全部 curl 下载失败 / 5 校验失败
-    stage_code = {"probe": 3, "fetch": 4, "verify": 5}
-    sys.exit(0 if res["ok"] else stage_code.get(res["stage"], 3))
+def cmd_validate(args, kb) -> None:
+    errors = validate_kb(kb["upstreams"])
+    for i, s in enumerate(kb["raw"].get("services") or []):
+        # 服务目录是信息性条目：只要求 name（url 可为 registry 清单等非 http 描述）
+        if not s.get("name"):
+            errors.append(f"services[{i}]: 缺 name")
+    if errors:
+        for e in errors:
+            print(f"✗ {e}")
+        raise SystemExit(1)
+    n = sum(len(b.get("mirrors", [])) for b in kb["upstreams"].values())
+    m = len(kb["raw"].get("services") or [])
+    print(f"知识库 OK：{len(kb['upstreams'])} 上游 / {n} 镜像条目 / {m} 服务目录项")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="mirror-fetch", description="通用镜像下载引擎（probe→rewrite→fetch→verify）")
-    ap.add_argument("--config", default=None, help="镜像表 JSON 路径（默认随脚本的 configs/mirrors.json）")
+    ap = argparse.ArgumentParser(
+        prog="mirror-fetch",
+        description="镜像站知识库查询器（查址/搜索/维护；下载请用 curl -C -，本工具不发网络请求）")
+    ap.add_argument("--config", default=None, help="知识库 JSON 路径（默认随脚本的 configs/mirrors.json）")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p_list = sub.add_parser("list", help="列出镜像表")
-    p_list.set_defaults(fn=cmd_list)
-    p_probe = sub.add_parser("probe", help="探测直连与各镜像可达性/延迟")
-    p_probe.add_argument("url")
-    p_probe.add_argument("--timeout", type=float, default=8.0)
-    p_probe.add_argument("--json", action="store_true")
-    p_probe.set_defaults(fn=cmd_probe)
-    p_rewrite = sub.add_parser("rewrite", help="展示候选重写 URL")
-    p_rewrite.add_argument("url")
-    p_rewrite.set_defaults(fn=cmd_rewrite)
-    p_check = sub.add_parser("check", help="可达性判定报告（未获取 vs 不可获取 决策用）")
-    p_check.add_argument("url")
-    p_check.add_argument("--timeout", type=float, default=8.0)
-    p_check.add_argument("--json", action="store_true")
-    p_check.set_defaults(fn=cmd_check)
-    p_fetch = sub.add_parser("fetch", help="探测→选端点→curl -C - 下载→校验")
-    p_fetch.add_argument("url")
-    p_fetch.add_argument("-o", "--out", required=True)
-    p_fetch.add_argument("--mirror", default="auto",
-                         help="auto/direct/<host>（默认 auto：可达候选中延迟最小）")
-    p_fetch.add_argument("--timeout", type=float, default=8.0, help="probe 超时秒")
-    p_fetch.add_argument("--no-resume", action="store_true", help="不用 curl -C -")
-    p_fetch.add_argument("--sha256", default=None, help="下载后校验 sha256")
-    p_fetch.add_argument("--json", action="store_true")
-    p_fetch.set_defaults(fn=cmd_fetch)
+
+    p_l = sub.add_parser("lookup", help="按 URL 或 host 查镜像条目与可用 URL")
+    p_l.add_argument("target", help="上游 URL（如 https://huggingface.co/xxx）或 host")
+    p_l.set_defaults(fn=cmd_lookup)
+
+    p_li = sub.add_parser("list", help="列出知识库全部上游与镜像")
+    p_li.set_defaults(fn=cmd_list)
+
+    p_s = sub.add_parser("search", help="按关键词搜上游/镜像/note")
+    p_s.add_argument("keyword")
+    p_s.set_defaults(fn=cmd_search)
+
+    p_a = sub.add_parser("add", help="新增镜像条目（离线治理：去重 + 日期戳）")
+    p_a.add_argument("upstream", help="上游 host（如 huggingface.co）")
+    p_a.add_argument("mirror_url", help="镜像站地址（如 https://hf-mirror.com）")
+    p_a.add_argument("--mode", choices=MODES, default="host-replace")
+    p_a.add_argument("--note", default=None, help="备注（实测日期/限制等）")
+    p_a.add_argument("--verified", default=None, help="实测日期 YYYY-MM-DD（默认今天）")
+    p_a.set_defaults(fn=cmd_add)
+
+    p_v = sub.add_parser("validate", help="知识库完整性检查（CI/测试用）")
+    p_v.set_defaults(fn=cmd_validate)
     return ap
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = load_config(args.config)
-    args.fn(args, cfg)
+    kb = load_kb(args.config)
+    args.fn(args, kb)
     return 0
 
 
