@@ -7,6 +7,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/vlln/mirror-fetch-skill/stargazers"><img src="https://badgen.net/github/stars/vlln/mirror-fetch-skill?label=%E2%98%85" alt="GitHub stars" /></a>
   <img src="https://badgen.net/badge/license/MIT/blue" alt="MIT" />
   <img src="https://badgen.net/badge/spec/Agent%20Skills/8257D0" alt="Agent Skills spec" />
 </p>
@@ -40,7 +41,7 @@
 ### [skit](https://github.com/vlln/skit) (Recommended)
 
 ```bash
-skit install ./mirror-fetch-skill --skill mirror-fetch
+skit install https://github.com/vlln/mirror-fetch-skill/tree/main/skills/mirror-fetch
 ```
 
 ### Manually
