@@ -38,11 +38,17 @@ URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json`
 
 1. **查址**：`mirror-fetch lookup <上游URL或host>` —— 命中则打印 howto + 候选镜像 +
    具体可用 URL（host-replace 已换好域 / prefix 已加前缀）。
-2. **照 howto 自己下载**（工具不发网络，下载是你的活）：
-   - host-replace 型（HF → hf-mirror.com）：`curl -C -L --fail -o <dest> <镜像URL>`
-   - prefix 型（GitHub 系）：`curl -C -L --fail -o <dest> https://gh-proxy.com/<原完整URL>`
-   - git clone：`git clone https://gh-proxy.com/https://github.com/o/r.git`
+2. **照 howto 自己下载**（工具不发网络，下载是你的活）——curl 模板**统一带
+   `-sS` 与 `-w` 状态观测**（分诊表以 HTTP 状态码为输入；`--fail` 只给 exit 22，
+   无法区分 401/404/403）：
+   ```bash
+   curl -C - -L --fail -sS -o <dest> -w '\nHTTP=%{http_code} EFF=%{url_effective}\n' <镜像URL>
+   ```
+   - host-replace 型（HF → hf-mirror.com）：URL 已换域；下载后看 `EFF=` 确认实际端点
+   - prefix 型（GitHub 系）：`https://gh-proxy.com/<原完整URL>`；git clone：
+     `git clone https://gh-proxy.com/https://github.com/o/r.git`
    - **续传纪律**：中断后用同一命令同一输出路径重跑（`-C -` 幂等续传），不要装 wget/aria2c
+   - **候选镜像不通就试下一个**（ghproxy 类站漂移快；`lookup` 已列出全部候选）
 3. **知识库没有该上游**：`mirror-fetch list` 看全表 → `mirror-fetch search <关键词>`
    看服务目录（含 ModelScope 这类非 host-replace 项）→ 仍无则自行搜索可用镜像，
    **实测通过后** `mirror-fetch add <upstream> <镜像url> --note <实测日期/限制>` 入库
@@ -57,7 +63,7 @@ URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json`
 | 慢/超时/SSL 断/403 | 网络或封锁 | 查镜像 → 用镜像 URL 下载 |
 | **404 / Repository Not Found** | URL 形式错（S_MISJUDGE 型） | **先核对 URL**：models vs datasets 路径、缺 `/resolve/main/`、缺 `/datasets/`——镜像救不了 404 |
 | **401/407**（HF gated 仓库等） | 凭据问题 | 镜像同样 401 → 需 token/凭据通道；如实报告，不得称"不可获取" |
-| 镜像表外且无镜像（NCBI/GEO/Zenodo/figshare） | 无镜像生态 | 只能续传重试/换网络/换时段 |
+| 镜像表外且无镜像（Zenodo/figshare/NCBI-GEO/Kaggle/Dryad/OSF、论文复现用 GitLab 仓库等） | 无镜像生态 | 续传重试/换网络/换时段；**SRA/GEO 大文件**改走 EBI-ENA 官方镜像或 NCBI Aspera，Zenodo 用 `zenodo_get` 断点续传（见 services 目录） |
 | OCI 镜像（docker pull） | 不是本 KB 的活 | 走 `mip`（image-mirror-skill，含 probe/镜像表） |
 
 ## 维护纪律（更新知识库时）
@@ -72,7 +78,10 @@ URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json`
 ## Gotchas
 
 - 本工具**零网络请求**——它给的是知识，不是结果；下载结果以你的 curl 实测为准。
-- 镜像可用性会漂移：条目的 `verified` 只是上次实测日期，用前自行确认。
+- **镜像可能"回源"**：2026-09-02 实测 hf-mirror.com 对文件 GET 返回 308 重定向回
+  huggingface.co（实际落到源站）——下载后看 `EFF=%{url_effective}` 确认实际端点；
+  若源站 401/风控，"走镜像"同样拿不到（如实归类，别误报镜像失效）。
+- 镜像可用性会漂移：条目的 `verified` 只是上次实测日期，用前自行确认；候选不通试下一个。
 - 404 ≠ 网络问题：先查 URL 与来源（论文/数据声明/entry bundle）是否逐字一致。
 - gated（401）≠ 镜像问题：任何镜像都拿不到，需要凭据通道。
 - GitHub raw 走 prefix 代理；`github.com` 条目别名已含 `raw.githubusercontent.com` 等，

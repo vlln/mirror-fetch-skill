@@ -11,6 +11,10 @@
 命中上游（含别名）→ 打印 howto + 候选镜像（含 verified 日期/note）；若输入是完整
 URL，额外打印**每个候选镜像下可直接 curl 的 URL**（host-replace 已换域、prefix 已加前缀）。
 
+> 下载建议带状态观测（分诊表以状态码为输入）：`curl -C - -L --fail -sS -o <dest>
+> -w '\nHTTP=%{http_code} EFF=%{url_effective}\n' <镜像URL>`。`EFF=` 用于发现镜像
+> "回源"（如 hf-mirror.com 2026-09-02 实测 308 → huggingface.co），确认实际端点。
+
 未命中 → 列出现有上游 + 提示自行搜索后 `add` 入库。
 
 ### `mirror-fetch list`

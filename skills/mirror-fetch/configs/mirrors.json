@@ -1,43 +1,54 @@
 {
   "format": "mirror-kb/1",
   "updated": "2026-09-02",
-  "_comment": "镜像站知识库。upstreams: 可直接改写 URL 下载的上游（mode: host-replace=换域保路径 / prefix=镜像前缀+原URL）。services: 已知镜像站服务目录（含不能 host-replace 的，如 ModelScope）。verified=本仓库环境实测日期；来源为 mip/gip 配置的条目注明出处，使用前自行 probe（镜像可用性会漂移）。",
+  "_comment": "镜像站知识库。upstreams: 可直接改写 URL 下载的上游（mode: host-replace=换域保路径 / prefix=镜像前缀+原URL）。services: 已知镜像站/替代端点/无镜像生态提示（信息性目录）。verified=本仓库环境实测日期；来源为 web 调研或 mip/gip 配置的条目在 note 注明出处，使用前自行 probe（镜像可用性会漂移）。",
   "upstreams": {
     "huggingface.co": {
-      "aliases": ["hf.co", "huggingface.com"],
-      "howto": "文件/模型/数据集下载：把 huggingface.co 换成 hf-mirror.com，路径不变（host-replace）。gated 仓库（需 token）在镜像上同样 401——那是凭据问题不是镜像问题，需 HF_TOKEN 凭据通道。",
+      "aliases": [
+        "hf.co",
+        "huggingface.com"
+      ],
+      "howto": "文件/模型/数据集下载：把 huggingface.co 换成 hf-mirror.com，路径不变（host-replace）。也可 export HF_ENDPOINT=https://hf-mirror.com 后继续用 huggingface 库/CLI（drop-in，repo id 不变）。gated 仓库（需 token）在镜像上同样 401——那是凭据问题不是镜像问题，需 HF_TOKEN 凭据通道。",
       "mirrors": [
         {
           "url": "https://hf-mirror.com",
           "mode": "host-replace",
           "verified": "2026-09-02",
-          "note": "2026-09-02 Range probe 可达；对 gated 仓库完整 GET 返回 401（凭据，非镜像失效）"
+          "note": "2026-09-02 本环境实测：GET 200 可达，但对文件 GET 返回 308 重定向回 huggingface.co（回源模式——下载后看 curl -w 的 url_effective 确认实际端点）；官方项目 padeoe/hf-mirror-site；gated 仓库完整 GET 401（凭据，非镜像失效）"
         }
       ]
     },
     "github.com": {
-      "aliases": ["raw.githubusercontent.com", "codeload.github.com", "gist.githubusercontent.com", "gh.io"],
-      "howto": "git clone：git clone https://gh-proxy.com/https://github.com/o/r.git；raw 文件下载：curl https://gh-proxy.com/https://raw.githubusercontent.com/o/r/main/f；release/archive 同理加前缀。Docker/OCI 镜像另走 mip（image-mirror-skill）。",
+      "aliases": [
+        "raw.githubusercontent.com",
+        "codeload.github.com",
+        "gist.githubusercontent.com",
+        "gh.io"
+      ],
+      "howto": "git clone：git clone https://gh-proxy.com/https://github.com/o/r.git；raw 文件下载：curl https://gh-proxy.com/https://raw.githubusercontent.com/o/r/main/f；release/archive 同理加前缀（prefix 模式）。Docker/OCI 镜像另走 mip（image-mirror-skill）。",
       "mirrors": [
         {
           "url": "https://gh-proxy.com",
           "mode": "prefix",
-          "note": "来源 mip configs/gip.yaml（git clone + 文件下载 prefix 镜像表）；gip 每次使用会 probe 自选，本 KB 未单独验证"
+          "verified": "2026-09-02",
+          "note": "2026-09-02 本环境实测：raw README 返回 200/13B、archive zip 返回 200，prefix 映射可用（来源 mip configs/gip.yaml，现转本环境实测）"
         },
         {
           "url": "https://gh.llkk.cc",
           "mode": "prefix",
-          "note": "来源 mip configs/gip.yaml，同上"
+          "verified": "2026-09-02",
+          "note": "2026-09-02 本环境实测：raw README 200、archive zip 200，prefix 映射可用（来源 mip configs/gip.yaml，现转本环境实测）"
         },
         {
           "url": "https://ghfast.top",
           "mode": "prefix",
-          "note": "来源 mip configs/gip.yaml，同上"
+          "verified": "2026-09-02",
+          "note": "2026-09-02 本环境实测：raw README 200、archive zip 200，prefix 映射可用（来源 mip configs/gip.yaml，现转本环境实测）"
         },
         {
           "url": "https://ghproxy.net",
           "mode": "prefix",
-          "note": "来源 mip configs/gip.yaml，同上"
+          "note": "来源 mip configs/gip.yaml；2026-09-02 本环境探测：TLS 证书过期（curl 60）当前不可用，勿优先选；gip 每次使用会 probe 自选，恢复后自动可用"
         }
       ]
     }
@@ -47,25 +58,73 @@
       "name": "hf-mirror.com",
       "url": "https://hf-mirror.com",
       "for": "HuggingFace 文件/模型/数据集",
-      "note": "host-replace 直连用法；2026-09-02 本环境 Range probe 实测可达"
+      "note": "host-replace 直连用法；2026-09-02 本环境实测可达；官方项目 padeoe/hf-mirror-site"
     },
     {
       "name": "ModelScope（魔搭）",
       "url": "https://modelscope.cn",
       "for": "常见开源模型（HF 同源仓库常在此有镜像）",
-      "note": "非 host-replace：需在魔搭内按仓库名搜索，用其 CLI/页面下载；同名仓库不代表字节一致，用后自行校验"
+      "note": "非 host-replace：需在魔搭内按仓库名搜索。CLI 用法（来源 modelscope 官方 docs/source/command.md，未在 modelscope 官方 endpoint 逐命令实测）：pip install modelscope；modelscope download --model <model_id> [--revision <tag>] [--local_dir <dir>]；modelscope download --dataset <dataset_id>；也支持 snapshot_download(id)。同名仓库不代表字节一致，用后自行校验"
     },
     {
       "name": "GitHub prefix 代理",
       "url": "https://gh-proxy.com 等",
       "for": "GitHub clone / raw 文件 / release",
-      "note": "前缀式；动态清单见 mip configs/gip.yaml（gh-proxy.com / gh.llkk.cc / ghfast.top / ghproxy.net 等，gip 每次 probe 实测选择）"
+      "note": "前缀式；动态清单见 mip configs/gip.yaml。2026-09-02 本环境实测：gh-proxy.com / gh.llkk.cc / ghfast.top 三个可用（raw+archive 200），ghproxy.net 证书过期；ghproxy 系列最新可用地址以 https://ghproxy.link/ 公告页为准"
     },
     {
       "name": "Docker Hub / 各 registry 镜像",
       "url": "docker.1panel.live 等",
       "for": "OCI 镜像拉取",
       "note": "registry mirror 配置或 mip pull（本项目不做镜像下载）；完整候选表见 mip configs/mip.yaml（docker.io/ghcr.io → 十余个镜像，2026-06-13 亲测）"
+    },
+    {
+      "name": "EBI ENA + NCBI Aspera（SRA/GEO 官方加速通道）",
+      "url": "https://ftp.sra.ebi.ac.uk / https://www.ebi.ac.uk/ena/browser/",
+      "for": "NCBI SRA/GEO 大文件（测序数据）",
+      "note": "非 host-replace：ENA 是 SRA 数据的欧洲官方镜像，按 accession 检索后用其 FTP 或 Aspera 下载；NCBI 侧大文件可用官方 Aspera（ascp，bio-info-trainee.com/9474.html 教程）。2026-09-02 本环境实测 ftp.sra.ebi.ac.uk / ebi.ac.uk / ftp.ncbi.nlm.nih.gov 均可达（200）。来源: cloud.tencent.com/developer/article/2390296；wenku.csdn.net/column/s336gzgnnu1。小矩阵文件直连 NCBI FTP 即可，无需加速"
+    },
+    {
+      "name": "jsDelivr CDN（GitHub raw 替代端点）",
+      "url": "https://cdn.jsdelivr.net",
+      "for": "GitHub 仓库内单个文件（raw 场景）",
+      "note": "URL 形态不同（非 prefix/host-replace）：https://cdn.jsdelivr.net/gh/<user>/<repo>@<branch>/<path>（省略 @branch 走默认分支）。2026-09-02 本环境实测 200/13B；仅适合文件（不支持 git clone / release / 大文件）。来源: jsdelivr.com 官方文档（?docs=gh）"
+    },
+    {
+      "name": "GitHub520 hosts（DNS 级加速）",
+      "url": "https://raw.hellogithub.com/hosts",
+      "for": "github.com 全站（含 raw/release API）",
+      "note": "把 github 系域名直接解析到可通 IP 的 hosts 文件，需 root 权限改写 /etc/hosts；2026-09-02 本环境实测该 hosts 文件可下载（200）；镜像站不可用时作备选。来源: 冲浪笔记 github-acceleration-9-methods-2026"
+    },
+    {
+      "name": "ghproxy 系列地址发布页",
+      "url": "https://ghproxy.link/",
+      "for": "ghproxy 生态最新可用代理域名查询",
+      "note": "2026-09-02 本环境实测为静态公告页（对任意路径返回 SPA 页面，非代理本身）；同名'ghproxy'根域名曾多次停服换域，用前先来这里确认当前域名"
+    },
+    {
+      "name": "gitclone.com（git clone 专用）",
+      "url": "https://gitclone.com",
+      "for": "git clone 加速",
+      "note": "映射为 gitclone.com/github.com/<o>/<r>.git（去协议形，非标准 prefix）；仅支持 git clone，不支持 raw/release/archive。2026-09-02 本环境探测：/github.com/ 路径 502、/https://... 路径 404，未实测 git 协议可通（来源: 冲浪笔记 github-acceleration-9-methods-2026，未实测通过）"
+    },
+    {
+      "name": "GitHub proxy 候选（调研来源，本环境探测失败）",
+      "url": "mirror.ghproxy.com / hub.gitmirror.com / ghp.ci / raw.gitmirror.com / hub.fgit.ml / hub.nuaa.cf / git.yumenaka.net / gh.api.99988866.xyz",
+      "for": "GitHub clone / raw / release（曾见于国内镜像列表）",
+      "note": "来源: www.php.cn/faq/1695675.html、冲浪笔记 github-acceleration-9-methods-2026。2026-09-02 本环境全部 TLS 失败（SSL_ERROR_SYSCALL / handshake failure），未实测通过——不要浪费时间去试，优先用已实测的三个；若未来可通则再转 upstreams"
+    },
+    {
+      "name": "zenodo_get（Zenodo 下载工具，非镜像）",
+      "url": "https://gitcode.com/gh_mirrors/ze/zenodo_get",
+      "for": "Zenodo 数据集（无镜像生态的上游）",
+      "note": "Zenodo 无国内镜像；zenodo_get 提供断点续传/并行/校验（uv pip install zenodo-get；zenodo_get <deposit_id> [-R 5 -p 3]；国内可用清华 PyPI 镜像安装）。来源: blog.gitcode.com/67ebdf7975a2962a13927b0353e7a734，未实测"
+    },
+    {
+      "name": "Kaggle（无镜像生态，实测结论）",
+      "url": "https://www.kaggle.com",
+      "for": "Kaggle 数据集",
+      "note": "无官方或社区镜像站：数据完全依赖 Google Cloud 存储，无法简单镜像（来源: jetstream.surf/blog/kaggle-china-dataset-download-guide，2026-09-02 本环境 kaggle.com 可达 200）；加速只能靠 kaggle API + aria2/IDM 多线程"
     }
   ]
 }
