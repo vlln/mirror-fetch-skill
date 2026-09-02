@@ -1,0 +1,11 @@
+{
+  "_comment": "Upstream → mirror candidate table (engine: skills/mirror-fetch/scripts/mirror-fetch). mirrors[].host 可含 ':mode'（默认 host-replace）；mode ∈ {host-replace, prefix}。note 记录实测日期（镜像可用性会漂移，agent 每次使用前 probe）。新增上游：加一个 key 即可，engine 通用。",
+  "upstreams": {
+    "huggingface.co": {
+      "aliases": ["huggingface.co", "hf.co", "huggingface.com"],
+      "mirrors": [
+        {"host": "hf-mirror.com", "mode": "host-replace", "note": "2026-09-02 亲测可达（http/https + HEAD）"}
+      ]
+    }
+  }
+}
