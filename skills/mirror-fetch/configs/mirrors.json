@@ -48,7 +48,13 @@
         {
           "url": "https://ghproxy.net",
           "mode": "prefix",
-          "note": "来源 mip configs/gip.yaml；2026-09-02 本环境探测：TLS 证书过期（curl 60）当前不可用，勿优先选；gip 每次使用会 probe 自选，恢复后自动可用"
+          "note": "来源 mip configs/gip.yaml；2026-09-02 第四轮复测：TLS 证书仍过期（SSL certificate problem: certificate has expired），prefix 映射 000，勿优先选；gip 每次使用会 probe 自选，恢复后自动可用"
+        },
+        {
+          "url": "https://ghproxy.vip",
+          "mode": "prefix",
+          "verified": "2026-09-02",
+          "note": "2026-09-02 本环境实测：raw README prefix 映射 GET 200/7329B 且 body 为真实文件内容（text/plain，非落地页），与 ghfast.top 实测响应字节一致（来源 mip configs/gip.yaml 候选，现转本环境实测）"
         }
       ]
     }
@@ -67,10 +73,40 @@
       "note": "非 host-replace：需在魔搭内按仓库名搜索。CLI 用法（来源 modelscope 官方 docs/source/command.md，未在 modelscope 官方 endpoint 逐命令实测）：pip install modelscope；modelscope download --model <model_id> [--revision <tag>] [--local_dir <dir>]；modelscope download --dataset <dataset_id>；也支持 snapshot_download(id)。同名仓库不代表字节一致，用后自行校验"
     },
     {
+      "name": "智源 wisemodel（始智 AI 模型社区）",
+      "url": "https://www.wisemodel.cn",
+      "for": "常见开源模型（与 HF 同源权重常同步发布于此）",
+      "note": "智源/始智 AI 的国内模型开源社区（定位中国版 HuggingFace），DeepSeek-R1、智源 Aquila2、BGE 等与 HF 同源的模型权重发布于此（来源: bianews.com/news/details?id=163312、blog.csdn.net/wisemodel/article/details/135130447）。2026-09-02 本环境实测 www.wisemodel.cn 与 /models 均 200；下载需按仓库页入口（多为站内登录后获取下载链接），未实测下载流程；同名仓库不代表字节一致"
+    },
+    {
+      "name": "OpenDataLab（上海人工智能实验室）",
+      "url": "https://opendatalab.com",
+      "for": "常见开源数据集（与 HF datasets 同源）",
+      "note": "开放数据平台，收录 7000+ 开源数据集（含与 HF 常见数据集同源者；ModelScope 已联动调用，来源: developer.aliyun.com/article/1543589）。CLI: pip install opendatalab、odl login、odl get <dataset>（来源: github.com/opendatalab/opendatalab-python-sdk、opendatalab.github.io/dsdl-docs/en/tutorials/dataset_download）。2026-09-02 本环境实测 opendatalab.com 与 /datasets 均 200；大文件多需登录获取下载链接，未实测完整下载"
+    },
+    {
+      "name": "百度飞桨 AI Studio",
+      "url": "https://aistudio.baidu.com",
+      "for": "公开数据集/模型（常与 HF 常见数据集同源）",
+      "note": "飞桨生态的数据集/模型中心（aistudio.baidu.com/datasetoverview）；下载需百度账号登录（来源: ai.baidu.com/ai-doc/AISTUDIO/Xme7ykmz1）。2026-09-02 本环境实测 aistudio.baidu.com 与 /datasetoverview 均 200；未实测登录下载流程"
+    },
+    {
+      "name": "和鲸 Heywhale（社区数据集）",
+      "url": "https://www.heywhale.com",
+      "for": "社区分享的数据集/模型（常为 HF 常见数据集的副本）",
+      "note": "和鲸社区数据集中心（来源: ai.heywhale.com/article/584.html）。2026-09-02 本环境实测：默认 UA curl 首页 404（重定向 /home 后）、带浏览器 UA GET 200——疑似反爬校验；下载通常需登录，未实测。是否收录目标数据集需站内搜索确认"
+    },
+    {
+      "name": "阿里云天池（Tianchi）",
+      "url": "https://tianchi.aliyun.com",
+      "for": "竞赛/公开数据集（部分与 HF 常见数据集同源）",
+      "note": "天池数据集中心 tianchi.aliyun.com/dataset，下载需阿里云账号登录（来源: tianchi.aliyun.com/specials/promotion/about）。2026-09-02 本环境实测 tianchi.aliyun.com 与 /dataset 均 200；未实测登录下载流程"
+    },
+    {
       "name": "GitHub prefix 代理",
       "url": "https://gh-proxy.com 等",
       "for": "GitHub clone / raw 文件 / release",
-      "note": "前缀式；动态清单见 mip configs/gip.yaml。2026-09-02 本环境实测：gh-proxy.com / gh.llkk.cc / ghfast.top 三个可用（raw+archive 200），ghproxy.net 证书过期；ghproxy 系列最新可用地址以 https://ghproxy.link/ 公告页为准"
+      "note": "前缀式；动态清单见 mip configs/gip.yaml。2026-09-02 本环境实测：gh-proxy.com / gh.llkk.cc / ghfast.top / ghproxy.vip 四个可用（raw prefix 映射 200）；ghproxy.net 仍不可用；ghproxy 系列最新可用地址以 https://ghproxy.link/ 公告页为准"
     },
     {
       "name": "Docker Hub / 各 registry 镜像",
@@ -100,7 +136,7 @@
       "name": "ghproxy 系列地址发布页",
       "url": "https://ghproxy.link/",
       "for": "ghproxy 生态最新可用代理域名查询",
-      "note": "2026-09-02 本环境实测为静态公告页（对任意路径返回 SPA 页面，非代理本身）；同名'ghproxy'根域名曾多次停服换域，用前先来这里确认当前域名"
+      "note": "2026-09-02 本环境实测为静态公告页（对任意路径返回 SPA 页面，非代理本身）；第四轮复测（同日）仍 200；同名'ghproxy'根域名曾多次停服换域，用前先来这里确认当前域名"
     },
     {
       "name": "gitclone.com（git clone 专用）",
@@ -109,10 +145,10 @@
       "note": "映射为 gitclone.com/github.com/<o>/<r>.git（去协议形，非标准 prefix）；仅支持 git clone，不支持 raw/release/archive。2026-09-02 本环境探测：/github.com/ 路径 502、/https://... 路径 404，未实测 git 协议可通（来源: 冲浪笔记 github-acceleration-9-methods-2026，未实测通过）"
     },
     {
-      "name": "GitHub proxy 候选（调研来源，本环境探测失败）",
-      "url": "mirror.ghproxy.com / hub.gitmirror.com / ghp.ci / raw.gitmirror.com / hub.fgit.ml / hub.nuaa.cf / git.yumenaka.net / gh.api.99988866.xyz",
-      "for": "GitHub clone / raw / release（曾见于国内镜像列表）",
-      "note": "来源: www.php.cn/faq/1695675.html、冲浪笔记 github-acceleration-9-methods-2026。2026-09-02 本环境全部 TLS 失败（SSL_ERROR_SYSCALL / handshake failure），未实测通过——不要浪费时间去试，优先用已实测的三个；若未来可通则再转 upstreams"
+      "name": "GitHub proxy 候选（2026-09-02 复测清单，未通过 prefix 映射）",
+      "url": "ghproxy.net / ghproxy.cc / ghproxy.cn / ghps.cc / githubproxy.cc / kkgithub.com / githubfast.com / gh-proxy.net / gh.ddlc.top / ghproxy.com / github.moeyy.xyz / ghproxy.eu.org / ghproxy.ink / mirror.ghproxy.com / ghp.ci / hub.gitmirror.com / raw.gitmirror.com / hub.fgit.ml / hub.nuaa.cf / git.yumenaka.net / gh.api.99988866.xyz",
+      "for": "GitHub clone / raw / release（曾见于国内镜像列表或 mip 配置）",
+      "note": "来源: www.php.cn/faq/1695675.html、冲浪笔记 github-acceleration-9-methods-2026、mip configs/gip.yaml、volcengine/OpenViking github-proxy SKILL.md（githubproxy.cc）。2026-09-02 本环境复测（prefix 映射 raw README，-sIL --max-time 10）：连接失败（000）——ghproxy.net、ghproxy.cc、github.moeyy.xyz、ghproxy.eu.org、ghproxy.ink、mirror.ghproxy.com、ghp.ci（与上轮一致，勿再试）；映射无效/拒绝——ghps.cc 404、kkgithub.com 404（host-replace 亦不通，含热门仓库）、githubfast.com 403、gh-proxy.net 200 但指向 survey-smiles.com 无关站（域名易主）；可达但非映射代理（落地页陷阱）——ghproxy.cn 200 返回自身落地页、githubproxy.cc 200 返回 landing HTML（OpenViking 称 git clone 可用，但 curl raw 映射未过）、ghproxy.com 302 至 ghfast.top 根路径（路径丢失，等同 ghfast.top 生态）、gh.ddlc.top 302 重写至 cdn.jsdelivr.net（仅 <20MB 小文件 raw 可用，jsDelivr 条目已覆盖）。第四轮复测（同日稍晚）：原 8 域名（mirror.ghproxy.com/hub.gitmirror.com/ghp.ci/raw.gitmirror.com/hub.fgit.ml/hub.nuaa.cf/git.yumenaka.net/gh.api.99988866.xyz）home+rawprefix 全部仍 000 无恢复；但 githubproxy.cc 与 gh-proxy.net 同日出现抖动（第三轮 200 → 第四轮 000）——代理漂移极快，任何单次结果不可信太久，用前必自测。优先用已实测的 gh-proxy.com / gh.llkk.cc / ghfast.top / ghproxy.vip"
     },
     {
       "name": "zenodo_get（Zenodo 下载工具，非镜像）",
@@ -130,13 +166,19 @@
       "name": "pip/PyPI 源（国内镜像）",
       "url": "https://pypi.tuna.tsinghua.edu.cn/simple 等",
       "for": "pip 装包/依赖解析慢或失败（受限网络）",
-      "note": "配置型（非 URL 改写）：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple <pkg>，或 ~/.pip/pip.conf 设 index-url。候选：清华 tuna / 阿里 mirrors.aliyun.com/pypi/simple / 腾讯 mirrors.cloud.tencent.com/pypi/simple（2026-09-02 全部 HTTP 200 可达）。备注：本环境能直连 pypi.org，无法复现'国际源被墙'场景，用途为受限网络配置"
+      "note": "配置型（非 URL 改写）：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple <pkg>，或 ~/.pip/pip.conf 设 index-url。候选：清华 tuna / 阿里 mirrors.aliyun.com/pypi/simple / 腾讯 mirrors.cloud.tencent.com/pypi/simple（2026-09-02 全部 HTTP 200 可达）。uv 复用同一源：uv pip install --index-url https://pypi.tuna.tsinghua.edu.cn/simple <pkg>（或 --default-index）。备注：本环境能直连 pypi.org，无法复现'国际源被墙'场景，用途为受限网络配置"
     },
     {
       "name": "conda 源（国内镜像）",
       "url": "https://mirrors.tuna.tsinghua.edu.cn/anaconda 等",
       "for": "conda/mamba 装包慢或失败",
       "note": "配置型：conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/ 等 pkgs/{main,free,r,msys2} 四源 + show_channel_urls。候选：清华 tuna / USTC mirrors.ustc.edu.cn/anaconda（2026-09-02 均 200 可达）"
+    },
+    {
+      "name": "conda-forge channel（国内镜像，独立于默认 pkgs 源）",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge 等",
+      "for": "conda-forge channel 包安装慢或失败（conda/mamba 场景）",
+      "note": "配置型：conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge（清华，来源: mirror.tuna.tsinghua.edu.cn/help/anaconda/；USTC 同路径 mirrors.ustc.edu.cn/anaconda/cloud/conda-forge，来源: mirrors.ustc.edu.cn/help/anaconda.html）。2026-09-02 清华/USTC 两处均实测 200"
     },
     {
       "name": "npm 源（国内镜像）",
@@ -148,7 +190,13 @@
       "name": "CRAN / Bioconductor 源",
       "url": "https://mirrors.tuna.tsinghua.edu.cn/CRAN/ 等",
       "for": "R 包安装（install.packages/BiocManager）慢或失败",
-      "note": "配置型：R options(repos=c(CRAN='https://mirrors.tuna.tsinghua.edu.cn/CRAN/'))；Bioconductor 镜像同域。清华 CRAN 2026-09-02 200 可达"
+      "note": "配置型：R options(repos=c(CRAN='https://mirrors.tuna.tsinghua.edu.cn/CRAN/'))；Bioconductor 走独立镜像见下条（同域不同路径）。清华 CRAN 2026-09-02 200 可达"
+    },
+    {
+      "name": "Bioconductor（清华镜像，独立条目）",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/bioconductor",
+      "for": "BiocManager::install 慢或失败",
+      "note": "配置型：options(BioC_mirror = 'https://mirrors.tuna.tsinghua.edu.cn/bioconductor') 后 BiocManager::install() 即走该镜像（来源: mirror.tuna.tsinghua.edu.cn/help/bioconductor/）。2026-09-02 实测该路径 200；USTC 同路径 mirrors.ustc.edu.cn/bioconductor 404（未提供，勿用）"
     },
     {
       "name": "apt/Ubuntu 源（国内镜像）",
@@ -161,6 +209,114 @@
       "url": "https://goproxy.cn",
       "for": "go install/go mod download 慢或失败",
       "note": "配置型：export GOPROXY=https://goproxy.cn,direct（goproxy.cn 为七牛维护，国内常用；2026-09-02 未逐端点实测，官方文档 goproxy.cn）"
+    },
+    {
+      "name": "Maven / Gradle（阿里云）",
+      "url": "https://maven.aliyun.com/repository/public",
+      "for": "Java 依赖解析慢或失败（mavenCentral 国内代理）",
+      "note": "配置型：Gradle repositories { maven { url 'https://maven.aliyun.com/repository/public' } }；Maven 改 settings.xml mirrorOf=central 指向该地址（来源: developer.aliyun.com/mirror/maven）。2026-09-02 实测真实 artifact GET 200（com/google/guava/guava/30.1.1-jre/*.pom）；目录路径 HEAD 404 属正常（目录列举关闭），不代表不可用"
+    },
+    {
+      "name": "Rust crates / rustup（rsproxy.cn 或中科大）",
+      "url": "https://rsproxy.cn",
+      "for": "cargo add/build 拉依赖、rustup 安装/更新慢或失败",
+      "note": "配置型（来源: rsproxy.cn 官方页）：export RUSTUP_DIST_SERVER=https://rsproxy.cn 与 RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup；~/.cargo/config.toml 写 [source.crates-io] replace-with='rsproxy-sparse'、[source.rsproxy-sparse] registry='sparse+https://rsproxy.cn/index/'（cargo ≥1.68 推荐 sparse）。备选：中科大 mirrors.ustc.edu.cn/crates.io-index（git index）与 mirrors.ustc.edu.cn/crates.io（静态 crate）。2026-09-02 实测 rsproxy.cn 首页、sparse index（/index/to/ki/tokio）、rustup-init.sh、USTC crates.io 与 crates.io-index 均 200"
+    },
+    {
+      "name": "Homebrew（清华 / USTC）",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/git/homebrew 等",
+      "for": "brew install/update 慢或失败",
+      "note": "配置型（来源: mirror.tuna.tsinghua.edu.cn/help/homebrew/）：export HOMEBREW_BREW_GIT_REMOTE='https://mirrors.tuna.tsinghua.edu.cn/git/homebrew/brew.git'、HOMEBREW_CORE_GIT_REMOTE='…/homebrew-core.git'、HOMEBREW_BOTTLE_DOMAIN='https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles'（USTC 同构 bottles: mirrors.ustc.edu.cn/homebrew-bottles）。2026-09-02 实测清华/USTC bottles 均 200；git 仓库路径可 git ls-remote 自验"
+    },
+    {
+      "name": "HF 大文件下载工具（hf_xet / hf_transfer / 断点续传）",
+      "url": "https://huggingface.co/docs/huggingface_hub/guides/download",
+      "for": "HF 大模型权重/大文件下载加速与断点续传",
+      "note": "官方并行下载器：hf_transfer（pip install hf_transfer + HF_HUB_ENABLE_HF_TRANSFER=1）原用于 LFS 后端并行加速；2026-09 HF 官方文档标注 hf_transfer 已弃用（deprecated）、新存储后端为 hf_xet（Xet，随新版 huggingface_hub 引入），该文档页本环境实测 200（来源: huggingface.co/docs/huggingface_hub/guides/download、github.com/huggingface/hf_transfer）。断点续传：huggingface-cli download <repo> --local-dir <dir> 与 hf_hub_download 均默认续传（中断重跑同命令即可；旧版 snapshot_download 的 resume_download=True 兼容）——以上为官方文档来源，本环境未实测大文件下载。调研（2026-09，第四轮再查）未发现 hf-mirror.com 之外活跃的 HF 加速站（csdn 全攻略 156425478、sickn33/agentic-awesome-skills china-network.md、cndba.cn/article/17049 仍只列 hf-mirror 生态）；组合打法 = 镜像(hf-mirror) + 并行下载器 + 同源平台(ModelScope/wisemodel)；参考: blog.csdn.net/qq_73472828/article/details/160326579、docs.alayanew.com/en/docs/tech-blog/2026-05-05-hf-mirror-acceleration"
+    },
+    {
+      "name": "git-lfs 受限网络加速（调研结论：无可靠镜像方案）",
+      "url": "https://git-lfs.com",
+      "for": "git clone 含 LFS 大文件的仓库慢/失败",
+      "note": "调研（2026-09）未找到 GitHub LFS 的国内镜像生态：ghproxy 类 prefix 代理不代理 LFS media，raw 镜像仅覆盖指针/小文件。2026-09-02 第四轮实测补充：media.githubusercontent.com 主机本环境可达（TLS/HTTP 层通，404=路径非 LFS 对象），但 gh-proxy.com 前缀 000 不转发该主机、ghfast.top 403 明确拒绝——GitHub LFS media 无 prefix 代理通道（本环境未验证到具体 LFS 对象直连 200，测试仓库文件实际非 LFS）。实用做法：HF 仓库不要 git clone，改用 huggingface-cli download（见上条；LFS 文件可走镜像 resolve 路径 hf-mirror.com/<repo>/resolve/<tag>/<file>）；GitHub 含 LFS 仓库改走 release/raw/archive 小文件路径或换网络"
+    },
+    {
+      "name": "GTEx（无镜像生态，实测可达）",
+      "url": "https://gtexportal.org",
+      "for": "GTEx 组织表达/剪接等开放数据",
+      "note": "无国内镜像（数据托管于官方 portal + dbGaP）；2026-09-02 实测 gtexportal.org 200 可达。大文件加速建议：官方 bulk 下载需登录 portal；非受控表达矩阵可走 UCSC Xena 托管的 GTEx toil 数据（xenabrowser.net 本环境 200）；S3 托管大文件本环境直连失败（000），用时自测"
+    },
+    {
+      "name": "RCSB PDB（无国内镜像）",
+      "url": "https://www.rcsb.org",
+      "for": "蛋白质/核酸结构文件（.pdb/.cif/.mmcif）",
+      "note": "无国内镜像；2026-09-02 实测 rcsb.org 200 可达。结构文件通常 <10MB，直连 curl -C - 即可；批量用 RCSB 官方 API；欧洲官方节点 EBI PDBe（www.ebi.ac.uk/pdbe、ftp.ebi.ac.uk 本环境均 200）可作备选"
+    },
+    {
+      "name": "Ensembl（无国内镜像，官方区域节点）",
+      "url": "https://www.ensembl.org",
+      "for": "基因组注释/GFF/FASTA/变异数据",
+      "note": "无国内镜像；2026-09-02 实测 www.ensembl.org 与 ftp.ensembl.org 200 可达；官方区域节点本环境实测 useast.ensembl.org 不可达(000)、asia.ensembl.org 404（已退役）——直接用主站；FTP 大文件可 curl -C - 续传"
+    },
+    {
+      "name": "UniProt（无国内镜像）",
+      "url": "https://www.uniprot.org",
+      "for": "蛋白质序列/注释数据",
+      "note": "无国内镜像；2026-09-02 实测 uniprot.org 200 可达；数据走新站 API（api.uniprot.org）与 FTP（ftp.uniprot.org，官方文档），直连+续传即可"
+    },
+    {
+      "name": "STRING（无国内镜像）",
+      "url": "https://string-db.org",
+      "for": "蛋白质互作网络数据",
+      "note": "无国内镜像；2026-09-02 实测 string-db.org 200 可达；版本化全库下载（数 GB TSV）走官方下载页/FTP，直连+续传；网页 API 限频，批量用官方下载包"
+    },
+    {
+      "name": "TCGA/GDC（无国内镜像；UCSC Xena 再分发）",
+      "url": "https://portal.gdc.cancer.gov",
+      "for": "TCGA 基因组/表达/临床数据",
+      "note": "无国内镜像；2026-09-02 实测 portal.gdc.cancer.gov 与 api.gdc.cancer.gov/v0/status 均 200。开放数据走 GDC API（部分受控数据需 dbGaP 授权 + token）；公开表达/拷贝数矩阵常走 UCSC Xena 再分发（xenabrowser.net 本环境 200，gdc-hub），国内访问通常比 GDC 直连稳——未实测具体下载"
+    },
+    {
+      "name": "arXiv 加速（现状：官方备选可用，中科院镜像本环境不可达）",
+      "url": "https://arxiv.org",
+      "for": "论文 PDF 下载慢/失败（复现第一入口）",
+      "note": "2026-09-02 实测：arxiv.org、官方备选主机 export.arxiv.org（PDF: export.arxiv.org/pdf/<id>）、ar5iv.labs.arxiv.org（HTML 阅读版，免 PDF）均 200。中文镜像现状不佳：中科院 xxx.itp.ac.cn https 000 / http 502（flashvpn 2025 文章仍推荐它——可用性漂移明显，勿依赖）；cn.arxiv.org 已沦为重定向回 arxiv.org（非镜像）；mirror.sjtu.edu.cn/arxiv 与 mirrors.ustc.edu.cn/arxiv 均 404 无此路径。结论：优先 export.arxiv.org / ar5iv + curl -C - 续传。来源: flashvpn.io/blog/arxiv-china-access-speed-guide、blog.csdn.net/weixin_47466118/article/details/135885129"
+    },
+    {
+      "name": "PMC 开放获取全文（OA subset + BioC 结构化全文 API）",
+      "url": "https://pmc.ncbi.nlm.nih.gov",
+      "for": "付费墙外的生物医学论文全文（XML/JSON）",
+      "note": "替代端点非镜像：OA 子集清单页 pmc.ncbi.nlm.nih.gov/tools/openftlist/ 200；BioC 结构化全文 REST API（ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/BioC_json/{PMCID}/unicode，2026-09-02 实测 200/JSON 130KB+，无需 token，适合 agent 抓正文）；全文 XML/FTP 包 ftp.ncbi.nlm.nih.gov/pub/pmc/ 200（NCBI FTP 目录可达，圆2已测）。来源: ncbi.nlm.nih.gov/research/bionlp/APIs/BioC-PMC/"
+    },
+    {
+      "name": "Europe PMC（全文检索与 XML，替代端点非镜像）",
+      "url": "https://europepmc.org",
+      "for": "论文检索 + OA 全文定位/XML 下载",
+      "note": "REST API：www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:<doi>&resultType=core&format=json 2026-09-02 实测 200（DOI 命中并返回 PMCID）；全文 XML 走 FTP ftp.ebi.ac.uk/pub/databases/pmc/（200）。与 PMC 互补（欧洲侧入口，EBI 域本环境可达）"
+    },
+    {
+      "name": "Unpaywall / OpenAlex / Semantic Scholar API（付费墙替代端点）",
+      "url": "https://api.openalex.org",
+      "for": "按 DOI 找 OA 全文 PDF（非镜像，知识型端点）",
+      "note": "OpenAlex：api.openalex.org/works/doi:<doi> 2026-09-02 实测 200，返回 open_access.oa_url（实测命中 hal.science 链接）；Unpaywall：api.unpaywall.org/v2/<doi>?email=<真实邮箱> 实测 200（example.com 等假邮箱 422 被拒），返回 best_oa_location；Semantic Scholar graph/v1：端点可达但无 key 时 429 限流、DOI 检索实测 404 未命中（2026 行为，勿作首选）。三者只给'哪里能下到 OA 全文'的指针，非镜像，受限网络下用于决策而非直接下载"
+    },
+    {
+      "name": "Google Drive 直链（受限网络负知识）",
+      "url": "https://drive.google.com",
+      "for": "GD 公开分享文件下载（受限网络）",
+      "note": "负知识条目：2026-09-02 本环境实测 drive.google.com 000 不可达（同环境 docs.google.com 200）；Drive 本体被墙时 gdown/代理站均无解——gdown 只解决大文件 confirm token、不解决封锁（来源: deepwiki.com/wkentaro/gdown、github.com/wkentaro/gdown，本环境未实测 gdown）；第三方 gd 直链代理站可靠性差、易倒。结论：受限网络下 GD 直链不可依赖，别浪费时间试代理站；确需时换网络/通道"
+    },
+    {
+      "name": "Dropbox / Mega 直链（受限网络实测）",
+      "url": "https://www.dropbox.com",
+      "for": "Dropbox/Mega 公开分享文件下载",
+      "note": "2026-09-02 本环境实测：dropbox.com 200、dl.dropboxusercontent.com 可达（根路径 404 属正常，直链 URL 形如 dl.dropboxusercontent.com/s/<id>/<file>，公开分享无需登录）；mega.nz 000 不可达（需其客户端/API，受限网络基本无解）。Dropbox 国内部分地区被墙，用时自测；本条目为实测状态记录，非加速方案"
+    },
+    {
+      "name": "aria2c / rsync 多线程下载（普通场景线索）",
+      "url": "https://aria2.github.io",
+      "for": "普通用户单文件多线程下载（非本项目下载纪律）",
+      "note": "线索条目：aria2c -x16 -s16 对单文件多线程分片在受限网络有效（配合镜像 URL 使用）；rsync --partial 用于 rsync:// 端点断点续传；Motrix/IDM 属桌面 GUI 工具、agent 场景无用，不收录。注意：本项目下载纪律统一用 curl -C -（幂等续传 + 状态可观测），aria2/rsync 仅适用普通/交互场景，agent 不引入新依赖"
     }
   ]
 }

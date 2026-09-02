@@ -33,9 +33,11 @@ URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json`
 
 - huggingface.co / github.com 相关下载慢、超时、Connection reset、403/429（先查镜像再重试）
 - 需要确认"到底有没有可用镜像"再决定怎么下载
-- **pip/conda/npm/CRAN/apt/go 装包或依赖解析慢/失败**（受限网络）：这类是"配置型"
-  镜像（`pip -i` / conda channel / npm registry / sources.list / GOPROXY），
-  `mirror-fetch list`/`search 包源` 查 services 目录并按 note 配置
+- **pip/conda/npm/CRAN/apt/go/rust(cargo)/Homebrew/Maven 装包或依赖解析慢/失败**
+  （受限网络）：这类是"配置型"镜像（`pip -i` / conda channel / npm registry /
+  sources.list / GOPROXY / cargo source / brew env / maven settings.xml），
+  `mirror-fetch list`/`search 配置型` 查 services 目录并按 note 配置（`search 包源` 无命中，
+  配置型条目 note 均含关键词「配置型」）
 - agent 自行搜到一个新镜像站、想验证并**登记进知识库**（供以后复用）
 
 ## Workflow
@@ -67,8 +69,8 @@ URL"。本 skill 提供**镜像站地址知识库**：`$_S/configs/mirrors.json`
 | 慢/超时/SSL 断/403 | 网络或封锁 | 查镜像 → 用镜像 URL 下载 |
 | **404 / Repository Not Found** | URL 形式错（S_MISJUDGE 型） | **先核对 URL**：models vs datasets 路径、缺 `/resolve/main/`、缺 `/datasets/`——镜像救不了 404 |
 | **401/407**（HF gated 仓库等） | 凭据问题 | 镜像同样 401 → 需 token/凭据通道；如实报告，不得称"不可获取" |
-| 镜像表外且无镜像（Zenodo/figshare/NCBI-GEO/Kaggle/Dryad/OSF、论文复现用 GitLab 仓库等） | 无镜像生态 | 续传重试/换网络/换时段；**SRA/GEO 大文件**改走 EBI-ENA 官方镜像或 NCBI Aspera，Zenodo 用 `zenodo_get` 断点续传（见 services 目录） |
-| **pip/conda/npm/CRAN/apt/go 装包失败或慢** | 包源问题（配置型，非 URL 改写） | `mirror-fetch list` / `search 包源` → services 目录按 note 配置（pip `-i`、conda channel、npm registry、sources.list、GOPROXY） |
+| 镜像表外且无镜像（Zenodo/figshare/NCBI-GEO/Kaggle/Dryad/OSF/arXiv、论文复现用 GitLab 仓库、Google Drive 直链等） | 无镜像生态 | 续传重试/换网络/换时段；**SRA/GEO 大文件**改走 EBI-ENA 官方镜像或 NCBI Aspera，Zenodo 用 `zenodo_get`、论文走 PMC/Europe PMC/OpenAlex OA 端点（见 services 目录） |
+| **pip/conda/npm/CRAN/apt/go/rust(cargo)/Homebrew/Maven 装包失败或慢** | 包源问题（配置型，非 URL 改写） | `mirror-fetch list` / `search 配置型` → services 目录按 note 配置（pip `-i`、conda channel、npm registry、sources.list、GOPROXY、cargo source、brew env、maven settings.xml） |
 | OCI 镜像（docker pull） | 不是本 KB 的活 | 走 `mip`（image-mirror-skill，含 probe/镜像表） |
 
 ## 维护纪律（更新知识库时）

@@ -42,15 +42,17 @@
 | 主动性 | probe + pull + retag 全套 | **只查址**：lookup/search/list/add/validate，零网络请求 |
 | 下载执行 | mip 自己做 | agent/脚本自己 curl（续传纪律 `-C -`） |
 
-## 内置镜像站地址（v0.2）
+## 内置镜像站地址（2026-09-02，services 43 项）
 
 - **HuggingFace** → `hf-mirror.com`（host-replace；2026-09-02 实测可达）
-- **GitHub / raw / release** → `gh-proxy.com`、`gh.llkk.cc`、`ghfast.top`、`ghproxy.net`
-  （prefix 前缀式；清单继承自 mip configs/gip.yaml，其中三个已转本环境实测）
-- **服务目录**（非 host-replace，线索型）：ModelScope（魔搭）、EBI-ENA/Aspera
-  （SRA/GEO 官方加速）、jsDelivr（GitHub raw 替代端点）、GitHub520 hosts、Docker
-  Hub registry 镜像指引、**包/依赖源镜像**（pip/conda/npm/CRAN/apt/go —— 清华/阿里/
-  USTC/npmmirror/goproxy.cn，配置型 `-i`/channel/registry/sources/GOPROXY）等
+- **GitHub / raw / release** → `gh-proxy.com`、`gh.llkk.cc`、`ghfast.top`、`ghproxy.vip`
+  （prefix 前缀式，均实测；`ghproxy.net` 证书过期标注勿选）
+- **服务目录**（配置型/线索型/负知识，43 项）：
+  - 国内模型/数据平台：ModelScope、智源 wisemodel、OpenDataLab、AI Studio、Heywhale、天池
+  - 包/依赖源：pip / conda(+forge) / npm / CRAN+Bioconductor / apt / go / Maven / Rust / Homebrew
+  - 学术 OA 端点：arXiv（官方备选 export/ar5iv）、PMC BioC、Europe PMC、OpenAlex/Unpaywall
+  - 数据源结论：EBI-ENA/Aspera（SRA/GEO 大文件）、GTEx/PDB/Ensembl/UniProt/STRING/TCGA（无镜像直连可达）
+  - 工具/负知识：hf_xet/hf_transfer、git-lfs（无 prefix 通道）、Google Drive（代理不可靠）、zenodo_get、jsDelivr、GitHub520 hosts
 
 ## Installation
 
