@@ -36,6 +36,8 @@ agent 的活；工具的产出是地址 + 映射 + 治理。若未来确需"验�
 | mode ∈ {host-replace, prefix} 枚举 | 覆盖 HF（换域）与 GitHub proxy（前缀）两类真实用法；registry mirror / ModelScope 这类"不能直接改写 URL"的放 services 目录并注明差异，不硬塞进 mirrors |
 | mirrors 条目带 `verified` 实测日期 | 镜像可用性漂移；日期让 agent 判断新鲜度；来源非本环境实测的（mip/gip 继承）不写 verified、note 注明出处——诚实标注是硬要求 |
 | add 离线治理（去重/日期戳/mode 校验） | 让 agent 有能力"自己更新知识库"而不破坏格式；先实测再 add 的纪律写进 SKILL/CLI 文档 |
+| **OCI 容器镜像不并入本 KB（2026-09-02 判定）** | mip/image-mirror-skill 已覆盖主动下载（probe/pull/retag/镜像表），并入会造成双源漂移；分工 = 文件/URL 下载归本 KB、OCI 归 mip，本 KB services 只放 registry 指引 |
+| **包/依赖源镜像以"配置型"services 收录（2026-09-02）** | pip/conda/npm/CRAN/apt/go 装包失败是受限网络高频通用场景；配置知识（pip -i / conda channel / npm registry / sources.list / GOPROXY）不是 URL 改写，进 services 而非 upstreams；verified 诚实标注（本环境能直连国际源，无法复现"必须走镜像"场景，note 已注明用途为受限网络配置） |
 | 不臆造镜像 | 宁可缺失让 agent 搜索，不放未验证地址；docker registry 完整表由 mip 维护，KB 只放指引 |
 
 ## 工程约定

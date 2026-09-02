@@ -125,6 +125,42 @@
       "url": "https://www.kaggle.com",
       "for": "Kaggle 数据集",
       "note": "无官方或社区镜像站：数据完全依赖 Google Cloud 存储，无法简单镜像（来源: jetstream.surf/blog/kaggle-china-dataset-download-guide，2026-09-02 本环境 kaggle.com 可达 200）；加速只能靠 kaggle API + aria2/IDM 多线程"
+    },
+    {
+      "name": "pip/PyPI 源（国内镜像）",
+      "url": "https://pypi.tuna.tsinghua.edu.cn/simple 等",
+      "for": "pip 装包/依赖解析慢或失败（受限网络）",
+      "note": "配置型（非 URL 改写）：pip install -i https://pypi.tuna.tsinghua.edu.cn/simple <pkg>，或 ~/.pip/pip.conf 设 index-url。候选：清华 tuna / 阿里 mirrors.aliyun.com/pypi/simple / 腾讯 mirrors.cloud.tencent.com/pypi/simple（2026-09-02 全部 HTTP 200 可达）。备注：本环境能直连 pypi.org，无法复现'国际源被墙'场景，用途为受限网络配置"
+    },
+    {
+      "name": "conda 源（国内镜像）",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/anaconda 等",
+      "for": "conda/mamba 装包慢或失败",
+      "note": "配置型：conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/ 等 pkgs/{main,free,r,msys2} 四源 + show_channel_urls。候选：清华 tuna / USTC mirrors.ustc.edu.cn/anaconda（2026-09-02 均 200 可达）"
+    },
+    {
+      "name": "npm 源（国内镜像）",
+      "url": "https://registry.npmmirror.com",
+      "for": "npm/yarn/pnpm 装包慢或失败",
+      "note": "配置型：npm config set registry https://registry.npmmirror.com（淘宝 npmmirror，2026-09-02 200 可达）；或 .npmrc registry=…"
+    },
+    {
+      "name": "CRAN / Bioconductor 源",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/CRAN/ 等",
+      "for": "R 包安装（install.packages/BiocManager）慢或失败",
+      "note": "配置型：R options(repos=c(CRAN='https://mirrors.tuna.tsinghua.edu.cn/CRAN/'))；Bioconductor 镜像同域。清华 CRAN 2026-09-02 200 可达"
+    },
+    {
+      "name": "apt/Ubuntu 源（国内镜像）",
+      "url": "https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ 等",
+      "for": "apt-get 更新/安装慢或失败",
+      "note": "配置型：sources.list 换 mirrors.tuna.tsinghua.edu.cn / mirrors.aliyun.com / mirrors.ustc.edu.cn（2026-09-02 均 200 可达）；改完 apt-get update"
+    },
+    {
+      "name": "Go module proxy（国内）",
+      "url": "https://goproxy.cn",
+      "for": "go install/go mod download 慢或失败",
+      "note": "配置型：export GOPROXY=https://goproxy.cn,direct（goproxy.cn 为七牛维护，国内常用；2026-09-02 未逐端点实测，官方文档 goproxy.cn）"
     }
   ]
 }

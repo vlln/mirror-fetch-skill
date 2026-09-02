@@ -49,7 +49,8 @@
   （prefix 前缀式；清单继承自 mip configs/gip.yaml，其中三个已转本环境实测）
 - **服务目录**（非 host-replace，线索型）：ModelScope（魔搭）、EBI-ENA/Aspera
   （SRA/GEO 官方加速）、jsDelivr（GitHub raw 替代端点）、GitHub520 hosts、Docker
-  Hub registry 镜像指引等
+  Hub registry 镜像指引、**包/依赖源镜像**（pip/conda/npm/CRAN/apt/go —— 清华/阿里/
+  USTC/npmmirror/goproxy.cn，配置型 `-i`/channel/registry/sources/GOPROXY）等
 
 ## Installation
 
